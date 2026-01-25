@@ -1,0 +1,110 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Main ice cube (isometric view) -->
+  <!-- Top face -->
+  <path
+    d="M 50 20 L 80 35 L 50 50 L 20 35 Z"
+    fill="url(#ice-top)"
+    stroke="url(#ice-stroke)"
+    stroke-width="1"
+  />
+
+  <!-- Left face -->
+  <path
+    d="M 20 35 L 20 65 L 50 80 L 50 50 Z"
+    fill="url(#ice-left)"
+    stroke="url(#ice-stroke)"
+    stroke-width="1"
+  />
+
+  <!-- Right face -->
+  <path
+    d="M 50 50 L 50 80 L 80 65 L 80 35 Z"
+    fill="url(#ice-right)"
+    stroke="url(#ice-stroke)"
+    stroke-width="1"
+  />
+
+  <!-- Ice cracks and details on top -->
+  <path
+    d="M 50 20 L 45 40"
+    stroke="#B8E7FF"
+    stroke-width="0.8"
+    opacity="0.4"
+  />
+  <path
+    d="M 65 30 L 60 45"
+    stroke="#E0F4FF"
+    stroke-width="0.8"
+    opacity="0.3"
+  />
+  <path
+    d="M 35 30 L 40 42"
+    stroke="#E0F4FF"
+    stroke-width="0.8"
+    opacity="0.3"
+  />
+
+  <!-- Sparkles/crystals -->
+  <circle cx="45" cy="32" r="2" fill="#FFFFFF" opacity="0.9">
+    <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="60" cy="38" r="1.5" fill="#E0F4FF" opacity="0.8">
+    <animate attributeName="opacity" values="0.4;0.9;0.4" dur="2.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="38" cy="40" r="1.5" fill="#B8E7FF" opacity="0.7">
+    <animate attributeName="opacity" values="0.3;0.8;0.3" dur="3s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Ice shine/highlight on left face -->
+  <path
+    d="M 25 40 L 25 60 L 30 63 L 30 43 Z"
+    fill="url(#ice-shine-left)"
+    opacity="0.3"
+  />
+
+  <!-- Ice shine/highlight on right face -->
+  <path
+    d="M 70 40 L 70 60 L 75 57 L 75 37 Z"
+    fill="url(#ice-shine-right)"
+    opacity="0.2"
+  />
+
+  <!-- Gradients -->
+  <defs>
+    <!-- Top face gradient (brightest) -->
+    <linearGradient id="ice-top" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F0FAFF"/>
+      <stop offset="50%" stop-color="#E0F4FF"/>
+      <stop offset="100%" stop-color="#B8E7FF"/>
+    </linearGradient>
+
+    <!-- Left face gradient (medium) -->
+    <linearGradient id="ice-left" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7DD4FF"/>
+      <stop offset="100%" stop-color="#38BFFF"/>
+    </linearGradient>
+
+    <!-- Right face gradient (darker) -->
+    <linearGradient id="ice-right" x1="100%" y1="0%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#38BFFF"/>
+      <stop offset="100%" stop-color="#00A8FF"/>
+    </linearGradient>
+
+    <!-- Stroke gradient -->
+    <linearGradient id="ice-stroke" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#99EDFF"/>
+      <stop offset="100%" stop-color="#00A8FF"/>
+    </linearGradient>
+
+    <!-- Shine gradients -->
+    <linearGradient id="ice-shine-left" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </linearGradient>
+
+    <linearGradient id="ice-shine-right" x1="100%" y1="0%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </linearGradient>
+  </defs>
+</svg>

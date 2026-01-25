@@ -1,0 +1,195 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  telegramId        BigInt    @unique
+  username          String?
+  firstName         String?
+  lastName          String?
+  avatarUrl         String?
+
+  // TON Wallet
+  walletAddress     String?   @unique
+  tonConnectSession String?
+
+  // Points & Stats
+  totalPoints       Int       @default(0)
+  nftCount          Int       @default(0)
+
+  // Gamification
+  currentStreak     Int       @default(0)
+  maxStreak         Int       @default(0)
+  lastCheckIn       DateTime?
+
+  // Referrals
+  referredBy        String?
+  referralCode      String    @unique @default(cuid())
+
+  // Metadata
+  joinedAt          DateTime  @default(now())
+  lastActivity      DateTime  @default(now())
+  isPremium         Boolean   @default(false)
+
+  // Relations
+  pointsHistory     PointTransaction[]
+  nfts              UserNFT[]
+  achievements      UserAchievement[]
+  chatMemberships   ChatMember[]
+  referrals         User[]    @relation("Referrals")
+  referrer          User?     @relation("Referrals", fields: [referredBy], references: [id])
+
+  @@index([totalPoints(sort: Desc), telegramId])
+  @@index([walletAddress])
+  @@index([referralCode])
+}
+
+model NFTCollection {
+  id              String   @id @default(uuid())
+  address         String   @unique
+  name            String
+  description     String?
+  packTier        String   @default("common") // "common", "rare", "epic", "legendary"
+  pointsMultiplier Float   @default(1.0)
+  basePoints      Int      @default(100)
+
+  nfts            NFTItem[]
+  createdAt       DateTime @default(now())
+
+  @@index([packTier])
+  @@index([address])
+}
+
+model NFTItem {
+  id              String   @id @default(uuid())
+  collectionId    String
+  itemIndex       Int
+  metadata        Json
+  imageUrl        String?
+  name            String?
+
+  collection      NFTCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  userNfts        UserNFT[]
+
+  createdAt       DateTime @default(now())
+
+  @@unique([collectionId, itemIndex])
+  @@index([collectionId])
+}
+
+model UserNFT {
+  id              String   @id @default(uuid())
+  userId          String
+  nftId           String
+  detectedAt      DateTime @default(now())
+  lastScanned     DateTime @default(now())
+  pointsAwarded   Int      @default(0)
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nft             NFTItem  @relation(fields: [nftId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, nftId])
+  @@index([userId])
+  @@index([nftId])
+}
+
+model PointTransaction {
+  id              String   @id @default(uuid())
+  userId          String
+  points          Int
+  activityType    String   // "nft_detected", "referral", "daily_checkin", "achievement", "chat_boost"
+  metadata        Json?    // Additional information
+  description     String?
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([activityType])
+}
+
+model LeaderboardCache {
+  rank            Int      @id
+  userId          String   @unique
+  telegramId      BigInt
+  username        String?
+  firstName       String?
+  avatarUrl       String?
+  totalPoints     Int
+  nftCount        Int
+  updatedAt       DateTime @default(now())
+
+  @@index([totalPoints(sort: Desc)])
+  @@index([userId])
+}
+
+model Achievement {
+  id              String   @id @default(uuid())
+  key             String   @unique  // "first_nft", "top_10", "streak_7"
+  name            String
+  description     String
+  icon            String
+  pointsReward    Int      @default(0)
+  category        String   @default("general") // "nft", "social", "streak", "leaderboard"
+
+  userAchievements UserAchievement[]
+  createdAt       DateTime @default(now())
+
+  @@index([key])
+  @@index([category])
+}
+
+model UserAchievement {
+  id              String   @id @default(uuid())
+  userId          String
+  achievementId   String
+  unlockedAt      DateTime @default(now())
+  notified        Boolean  @default(false)
+
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement     Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+}
+
+model Chat {
+  id              String   @id @default(uuid())
+  telegramChatId  BigInt   @unique
+  title           String
+  type            String   // "group", "supergroup", "channel"
+  boostMultiplier Float    @default(1.0)  // Boost coefficient
+  isActive        Boolean  @default(true)
+
+  members         ChatMember[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([telegramChatId])
+  @@index([isActive])
+}
+
+model ChatMember {
+  id              String   @id @default(uuid())
+  chatId          String
+  userId          String
+  joinedAt        DateTime @default(now())
+  lastSeen        DateTime @default(now())
+  isActive        Boolean  @default(true)
+
+  chat            Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([userId])
+  @@index([chatId])
+}

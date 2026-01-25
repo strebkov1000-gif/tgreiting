@@ -1,0 +1,149 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0a1628] text-white font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  /* Primary button - Blue gradient */
+  .btn-primary {
+    @apply bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600
+           text-white font-semibold py-3 px-6 rounded-xl
+           transition-all duration-200
+           shadow-lg hover:shadow-blue-500/40 active:scale-95;
+  }
+
+  /* Secondary button - Glass effect */
+  .btn-secondary {
+    @apply bg-white/10 hover:bg-white/20
+           text-white font-semibold py-3 px-6 rounded-xl
+           transition-all duration-200 active:scale-95
+           backdrop-blur-md border border-white/20;
+  }
+
+  /* Outline button */
+  .btn-outline {
+    @apply bg-transparent hover:bg-blue-500/20
+           text-blue-400 font-semibold py-3 px-6 rounded-xl
+           transition-all duration-200 active:scale-95
+           border-2 border-blue-500;
+  }
+
+  /* Card - Glass morphism */
+  .card {
+    @apply bg-[#0e1a35]/80 backdrop-blur-xl rounded-2xl p-6
+           border border-white/10 shadow-xl;
+  }
+
+  /* Card glass - More transparent */
+  .card-glass {
+    @apply bg-white/5 backdrop-blur-xl rounded-2xl p-6
+           border border-white/10 shadow-xl;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-white via-blue-200 to-cyan-300 bg-clip-text text-transparent;
+  }
+
+  /* Skeleton loader */
+  .skeleton {
+    @apply animate-pulse bg-white/10 rounded;
+  }
+
+  /* Stats card */
+  .stat-card {
+    @apply bg-[#0e1a35]/60 backdrop-blur-md rounded-xl p-4
+           border border-white/5
+           hover:border-blue-500/30 transition-all duration-300;
+  }
+
+  /* Input field */
+  .input {
+    @apply w-full bg-[#0e1a35]/80 text-white rounded-xl px-4 py-3
+           border border-white/10
+           focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50
+           focus:outline-none transition-all duration-200
+           placeholder:text-gray-500;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
+           bg-blue-500/20 text-blue-300 border border-blue-500/30;
+  }
+
+  .badge-success {
+    @apply bg-emerald-500/20 text-emerald-300 border-emerald-500/30;
+  }
+
+  .badge-warning {
+    @apply bg-amber-500/20 text-amber-300 border-amber-500/30;
+  }
+}
+
+@layer utilities {
+  .text-shadow {
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  .glow {
+    box-shadow: 0 0 20px rgba(33, 150, 243, 0.4);
+  }
+
+  .glow-strong {
+    box-shadow: 0 0 30px rgba(33, 150, 243, 0.6);
+  }
+
+  .shadow-glow {
+    box-shadow: 0 0 20px rgba(33, 150, 243, 0.4);
+  }
+}
+
+/* Custom scrollbar - Modern dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(10, 22, 40, 0.8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #2196f3 0%, #0ea5e9 100%);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #1976d2 0%, #0284c7 100%);
+}
+
+/* Telegram theme override */
+.tg-theme-bg {
+  background-color: var(--tg-theme-bg-color, #0a1628) !important;
+}
+
+.tg-theme-text {
+  color: var(--tg-theme-text-color, #ffffff) !important;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(33, 150, 243, 0.3);
+  color: white;
+}
