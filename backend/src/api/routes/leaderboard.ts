@@ -239,6 +239,7 @@ router.get('/mountain',
 
       const cursor = req.query.cursor as string | undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const metric = (req.query.metric as string) || 'meters'; // 'meters' or 'stickers'
 
       // Get current user ID if authenticated
       let currentUserId: string | undefined;
@@ -253,7 +254,8 @@ router.get('/mountain',
       const result = await leaderboardService.getMountainLeaderboard(
         currentUserId,
         cursor,
-        limit
+        limit,
+        metric as 'meters' | 'stickers'
       );
 
       res.json(result);

@@ -107,11 +107,11 @@ router.get('/stats/:telegramId',
         return;
       }
 
-      // Calculate total points earned from referrals
+      // Calculate total points earned from all referral levels
       const referralPoints = await prisma.pointTransaction.aggregate({
         where: {
           userId: user.id,
-          activityType: 'referral'
+          activityType: { in: ['referral', 'referral_l2', 'referral_l3'] }
         },
         _sum: {
           points: true
@@ -119,7 +119,7 @@ router.get('/stats/:telegramId',
       });
 
       // Get referral link
-      const botUsername = process.env.BOT_USERNAME || 'your_bot';
+      const botUsername = process.env.BOT_USERNAME || 'IceTopbot';
       const referralLink = `https://t.me/${botUsername}?start=${user.referralCode}`;
 
       res.json({

@@ -4,7 +4,8 @@
       "Bash(pm2 logs:*)",
       "Bash(pm2 restart:*)",
       "Bash(npm run build:*)",
-      "Bash(npx prisma migrate:*)"
+      "Bash(npx prisma migrate:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

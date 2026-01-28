@@ -29,7 +29,7 @@ export const apiLimiter = rateLimit({
     res.status(429).json({
       error: 'Too Many Requests',
       message: 'Rate limit exceeded. Please try again later.',
-      retryAfter: req.rateLimit?.resetTime
+      retryAfter: (req as any).rateLimit?.resetTime
     });
   }
 });
@@ -61,7 +61,7 @@ export const nftScanLimiter = rateLimit({
     res.status(429).json({
       error: 'Rate Limit Exceeded',
       message: 'NFT scan limit exceeded. You can scan up to 10 times per hour.',
-      retryAfter: req.rateLimit?.resetTime
+      retryAfter: (req as any).rateLimit?.resetTime
     });
   },
   skip: (req) => {
@@ -96,7 +96,7 @@ export const authLimiter = rateLimit({
     res.status(429).json({
       error: 'Too Many Requests',
       message: 'Too many authentication attempts. Please try again later.',
-      retryAfter: req.rateLimit?.resetTime
+      retryAfter: (req as any).rateLimit?.resetTime
     });
   }
 });
@@ -127,7 +127,7 @@ export const strictLimiter = rateLimit({
     res.status(429).json({
       error: 'Rate Limit Exceeded',
       message: 'Too many requests. Please wait 10 minutes before trying again.',
-      retryAfter: req.rateLimit?.resetTime
+      retryAfter: (req as any).rateLimit?.resetTime
     });
   }
 });

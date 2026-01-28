@@ -20,6 +20,8 @@ export const authMiddleware: Middleware<BotContext> = async (ctx, next) => {
       where: { telegramId },
     });
 
+    let isNewUser = false;
+
     if (!user) {
       logger.info(`Creating new user: ${telegramId} (@${username})`);
       user = await prisma.user.create({
@@ -31,6 +33,7 @@ export const authMiddleware: Middleware<BotContext> = async (ctx, next) => {
           isPremium,
         },
       });
+      isNewUser = true;
     } else {
       // Update user info if changed
       const needsUpdate =
@@ -63,6 +66,7 @@ export const authMiddleware: Middleware<BotContext> = async (ctx, next) => {
     ctx.session = {
       userId: user.id,
       username: username || '',
+      isNewUser,
     };
 
     await next();

@@ -10,6 +10,7 @@ export interface BotContext extends Context {
   session: {
     userId?: string;
     username?: string;
+    isNewUser?: boolean;
   };
 }
 

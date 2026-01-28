@@ -104,17 +104,20 @@ router.get('/:telegramId',
           totalCount: stats.totalAvailable,
           percentage: stats.percentage
         },
-        recentUnlocks: stats.recentUnlocks.map(ua => ({
-          achievementId: ua.achievementId,
-          unlockedAt: ua.unlockedAt,
-          achievement: ua.achievement ? {
-            key: ua.achievement.key,
-            name: ua.achievement.name,
-            description: ua.achievement.description,
-            icon: ua.achievement.icon,
-            pointsReward: ua.achievement.pointsReward
-          } : undefined
-        }))
+        recentUnlocks: stats.recentUnlocks.map(ua => {
+          const achievement = (ua as any).achievement;
+          return {
+            achievementId: ua.achievementId,
+            unlockedAt: ua.unlockedAt,
+            achievement: achievement ? {
+              key: achievement.key,
+              name: achievement.name,
+              description: achievement.description,
+              icon: achievement.icon,
+              pointsReward: achievement.pointsReward
+            } : undefined
+          };
+        })
       });
     } catch (error) {
       logger.error('Get user achievements error:', {

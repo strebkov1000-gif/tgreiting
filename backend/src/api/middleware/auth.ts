@@ -3,6 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import { validateTelegramWebAppData } from '../utils/telegramAuth.js';
 import { logger } from '../../utils/logger.js';
 import { prisma } from '../../database/prisma/client.js';
+import { VisitStreakService } from '../../services/streak/VisitStreakService.js';
+
+const visitStreakService = new VisitStreakService(prisma);
 
 export interface AuthRequest extends Request {
   user?: {
@@ -89,6 +92,11 @@ export async function authMiddleware(
       firstName: user.firstName || undefined
     };
 
+    // Process daily visit streak (non-blocking)
+    visitStreakService.processVisit(user.id).catch((err) => {
+      logger.error('Failed to process visit streak:', { userId: user.id, error: err });
+    });
+
     logger.debug('User authenticated', {
       userId: user.id,
       telegramId: user.telegramId.toString()
@@ -167,6 +175,12 @@ export async function optionalAuthMiddleware(
         username: user.username || undefined,
         firstName: user.firstName || undefined
       };
+
+      // Process daily visit streak (non-blocking)
+      const userId = user.id;
+      visitStreakService.processVisit(userId).catch((err) => {
+        logger.error('Failed to process visit streak:', { userId, error: err });
+      });
     }
 
     next();

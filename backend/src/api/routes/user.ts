@@ -170,8 +170,57 @@ router.post('/checkin',
 );
 
 /**
+ * POST /api/user/wallet
+ * Simple wallet connection (saves address without proof)
+ */
+router.post('/wallet',
+  authMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.userId;
+      const { walletAddress } = req.body;
+
+      if (!walletAddress || typeof walletAddress !== 'string') {
+        res.status(400).json({
+          error: 'Bad Request',
+          message: 'Wallet address is required'
+        });
+        return;
+      }
+
+      // Update user's wallet address
+      await prisma.user.update({
+        where: { id: userId },
+        data: { walletAddress }
+      });
+
+      logger.info('Wallet connected:', { userId, walletAddress: walletAddress.slice(0, 10) + '...' });
+
+      // Check for wallet achievement
+      const achievementUnlocks = await achievementChecker.checkAchievementCategory(userId, 'wallet');
+
+      res.json({
+        success: true,
+        walletAddress,
+        achievements: achievementUnlocks.length > 0 ? achievementUnlocks : undefined
+      });
+    } catch (error) {
+      logger.error('Simple wallet connect error:', {
+        userId: req.user!.userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to connect wallet'
+      });
+    }
+  }
+);
+
+/**
  * PUT /api/user/wallet
- * Connect or update TON wallet
+ * Connect or update TON wallet with proof verification
  */
 router.put('/wallet',
   authMiddleware,

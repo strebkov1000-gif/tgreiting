@@ -101,21 +101,21 @@ export class NftScannerService {
       });
 
       const existingNftAddresses = new Set(
-        existingUserNfts.map(un => un.nft.itemIndex)
+        existingUserNfts.map(un => String(un.nft.itemIndex))
       );
 
       const scannedNftMap = new Map(
-        whitelistedNfts.map(nft => [nft.itemIndex, nft])
+        whitelistedNfts.map(nft => [String(nft.itemIndex), nft])
       );
 
       // Find new NFTs
       const newNfts = whitelistedNfts.filter(
-        nft => !existingNftAddresses.has(nft.itemIndex)
+        nft => !existingNftAddresses.has(String(nft.itemIndex))
       );
 
       // Find removed NFTs (sold or transferred)
       const removedNfts = existingUserNfts.filter(
-        un => !scannedNftMap.has(un.nft.itemIndex)
+        un => !scannedNftMap.has(String(un.nft.itemIndex))
       );
 
       let pointsAwarded = 0;

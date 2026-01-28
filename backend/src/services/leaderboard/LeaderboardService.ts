@@ -59,7 +59,7 @@ export class LeaderboardService {
 
   /**
    * Get top users from Redis sorted set (fast)
-   * Falls back to PostgreSQL if Redis fails
+   * Falls back to PostgreSQL if Redis fails or returns insufficient results
    */
   async getTopUsers(pagination: PaginationParams): Promise<LeaderboardEntry[]> {
     try {
@@ -70,8 +70,13 @@ export class LeaderboardService {
       // Try to get from Redis first
       const redisEntries = await this.redis.getLeaderboard(start, end);
 
-      if (redisEntries.length === 0) {
-        logger.warn('Redis leaderboard empty, falling back to PostgreSQL');
+      // Fall back to PostgreSQL if Redis is empty or returns fewer results than expected
+      // This ensures we show all users including those with 0 points
+      if (redisEntries.length === 0 || (offset === 0 && redisEntries.length < limit)) {
+        logger.warn('Redis leaderboard insufficient, falling back to PostgreSQL', {
+          redisCount: redisEntries.length,
+          requestedLimit: limit
+        });
         return await this.getTopUsersFromDB(pagination);
       }
 
@@ -336,31 +341,37 @@ export class LeaderboardService {
    * @param currentUserId - Current user ID to mark "is_me" and return their position
    * @param cursor - Pagination cursor (offset as string)
    * @param limit - Page size for list
+   * @param metricType - 'meters' for total points (default), 'stickers' for NFT count
    */
   async getMountainLeaderboard(
     currentUserId?: string,
     cursor?: string,
-    limit?: number
+    limit?: number,
+    metricType: 'meters' | 'stickers' = 'meters'
   ): Promise<MountainLeaderboardResponse> {
     try {
       const podiumSize = config.features.leaderboard.podiumSize;
       const pageSize = limit || config.features.leaderboard.defaultPageSize;
       const offset = cursor ? parseInt(cursor) : 0;
 
-      // Get metric info
-      const metricId = config.features.leaderboard.metric;
-      const metric: MetricInfo = {
-        id: metricId,
-        label: metricId === 'meters' ? 'm' : 'pts',
-        display_name: metricId === 'meters' ? 'Meters' : 'Points'
-      };
+      // Get metric info based on type
+      const metric: MetricInfo = metricType === 'stickers'
+        ? { id: 'stickers', label: '🎨', display_name: 'Stickers' }
+        : { id: 'meters', label: '📏', display_name: 'Meters' };
 
-      // Get podium (top 5)
-      const podiumEntries = await this.getTopUsers({ limit: podiumSize, offset: 0 });
+      // Get data based on metric type
+      let podiumEntries: LeaderboardEntry[];
+      let listEntries: LeaderboardEntry[];
 
-      // Get list (from rank 6+)
-      const listOffset = podiumSize + offset;
-      const listEntries = await this.getTopUsers({ limit: pageSize + 1, offset: listOffset });
+      if (metricType === 'stickers') {
+        podiumEntries = await this.getTopUsersByNftCount({ limit: podiumSize, offset: 0 });
+        const listOffset = podiumSize + offset;
+        listEntries = await this.getTopUsersByNftCount({ limit: pageSize + 1, offset: listOffset });
+      } else {
+        podiumEntries = await this.getTopUsers({ limit: podiumSize, offset: 0 });
+        const listOffset = podiumSize + offset;
+        listEntries = await this.getTopUsers({ limit: pageSize + 1, offset: listOffset });
+      }
 
       // Check if there are more entries
       const hasMore = listEntries.length > pageSize;
@@ -369,14 +380,27 @@ export class LeaderboardService {
       // Get current user's rank and value
       let meData: { rank: number; value: number } | null = null;
       if (currentUserId) {
-        const userRank = await this.getUserRank(currentUserId);
-        if (userRank) {
-          const user = await this.prisma.user.findUnique({
-            where: { id: currentUserId },
-            select: { totalPoints: true }
-          });
-          if (user) {
-            meData = { rank: userRank, value: user.totalPoints };
+        if (metricType === 'stickers') {
+          const userRank = await this.getUserRankByNftCount(currentUserId);
+          if (userRank) {
+            const user = await this.prisma.user.findUnique({
+              where: { id: currentUserId },
+              select: { nftCount: true }
+            });
+            if (user) {
+              meData = { rank: userRank, value: user.nftCount };
+            }
+          }
+        } else {
+          const userRank = await this.getUserRank(currentUserId);
+          if (userRank) {
+            const user = await this.prisma.user.findUnique({
+              where: { id: currentUserId },
+              select: { totalPoints: true }
+            });
+            if (user) {
+              meData = { rank: userRank, value: user.totalPoints };
+            }
           }
         }
       }
@@ -389,7 +413,7 @@ export class LeaderboardService {
         username: entry.username || null,
         first_name: entry.firstName || null,
         avatar_url: entry.avatarUrl || null,
-        value: entry.totalPoints,
+        value: metricType === 'stickers' ? entry.nftCount : entry.totalPoints,
         is_me: isMe || undefined
       });
 
@@ -405,6 +429,7 @@ export class LeaderboardService {
       const total = await this.getLeaderboardSize();
 
       // Calculate next cursor
+      const listOffset = podiumSize + offset;
       const nextCursor = hasMore ? (listOffset + pageSize).toString() : null;
 
       return {
@@ -423,6 +448,75 @@ export class LeaderboardService {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       throw new Error('Failed to get mountain leaderboard');
+    }
+  }
+
+  /**
+   * Get top users sorted by NFT count
+   */
+  async getTopUsersByNftCount(pagination: PaginationParams): Promise<LeaderboardEntry[]> {
+    try {
+      const { limit, offset } = pagination;
+
+      const users = await this.prisma.user.findMany({
+        select: {
+          id: true,
+          telegramId: true,
+          username: true,
+          firstName: true,
+          avatarUrl: true,
+          totalPoints: true,
+          nftCount: true
+        },
+        orderBy: { nftCount: 'desc' },
+        skip: offset,
+        take: limit
+      });
+
+      return users.map((user, index) => ({
+        rank: offset + index + 1,
+        userId: user.id,
+        telegramId: user.telegramId,
+        username: user.username || undefined,
+        firstName: user.firstName || undefined,
+        avatarUrl: user.avatarUrl || undefined,
+        totalPoints: user.totalPoints,
+        nftCount: user.nftCount
+      }));
+    } catch (error) {
+      logger.error('Get top users by NFT count error:', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw new Error('Failed to get top users by NFT count');
+    }
+  }
+
+  /**
+   * Get user rank by NFT count
+   */
+  async getUserRankByNftCount(userId: string): Promise<number | null> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { nftCount: true }
+      });
+
+      if (!user) {
+        return null;
+      }
+
+      // Count users with more NFTs
+      const count = await this.prisma.user.count({
+        where: { nftCount: { gt: user.nftCount } }
+      });
+
+      return count + 1;
+    } catch (error) {
+      logger.error('Get user rank by NFT count error:', {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
     }
   }
 
