@@ -4,6 +4,7 @@ import { connectDatabase, disconnectDatabase } from './database/prisma/client.js
 import { redis } from './database/redis/client.js';
 import { telegramBot } from './bot/index.js';
 import { startApiServer } from './api/index.js';
+import { startBackgroundJobs } from './jobs/index.js';
 
 async function main() {
   try {
@@ -18,6 +19,9 @@ async function main() {
 
     // Connect to Redis
     await redis.connect();
+
+    // Start all background jobs
+    startBackgroundJobs();
 
     // Start API server
     await startApiServer();

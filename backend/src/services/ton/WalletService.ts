@@ -13,7 +13,7 @@ export class WalletService {
   /**
    * Connect wallet to user account
    * 1. Verify TON Connect proof
-   * 2. Save wallet address to user
+   * 2. Save wallet address to user (with race condition protection)
    * 3. Trigger NFT scan
    */
   async connectWallet(userId: string, proof: TonProof): Promise<{
@@ -31,22 +31,39 @@ export class WalletService {
       // Extract and normalize wallet address
       const walletAddress = this.tonConnectService.extractWalletAddress(proof);
 
-      // Check if wallet is already connected to another user
-      const existingUser = await this.prisma.user.findUnique({
-        where: { walletAddress }
-      });
+      // SECURITY: Use transaction with row locking to prevent race conditions
+      // This ensures only one user can connect to a wallet at a time
+      await this.prisma.$transaction(async (tx) => {
+        // Check if wallet is already connected to another user
+        // Use raw query with FOR UPDATE to lock the row and prevent race conditions
+        const existingUsers = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM "User"
+          WHERE "walletAddress" = ${walletAddress}
+          FOR UPDATE
+        `;
 
-      if (existingUser && existingUser.id !== userId) {
-        throw new Error('Wallet is already connected to another account');
-      }
-
-      // Update user's wallet address
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          walletAddress,
-          lastActivity: new Date()
+        if (existingUsers.length > 0 && existingUsers[0].id !== userId) {
+          throw new Error('Wallet is already connected to another account');
         }
+
+        // Also lock the current user's row to prevent concurrent updates
+        await tx.$queryRaw`
+          SELECT id FROM "User"
+          WHERE id = ${userId}
+          FOR UPDATE
+        `;
+
+        // Update user's wallet address
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            walletAddress,
+            lastActivity: new Date()
+          }
+        });
+      }, {
+        isolationLevel: 'Serializable',
+        timeout: 10000 // 10 second timeout
       });
 
       logger.info('Wallet connected', {
@@ -54,7 +71,7 @@ export class WalletService {
         walletAddress
       });
 
-      // Trigger NFT scan
+      // Trigger NFT scan (outside transaction to avoid long locks)
       let nftScanResult;
       try {
         nftScanResult = await this.nftScannerService.updateUserNfts(userId, walletAddress);
@@ -100,17 +117,14 @@ export class WalletService {
         throw new Error('No wallet connected');
       }
 
-      // Remove all UserNFT records (since wallet is disconnected)
-      await this.prisma.userNFT.deleteMany({
-        where: { userId }
-      });
+      // DON'T delete UserNFT records - they will be updated on next scan
+      // This prevents duplicate point awards on wallet reconnect
 
-      // Update user
+      // Update user - keep nftCount as is (will be corrected on next scan)
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           walletAddress: null,
-          nftCount: 0,
           tonConnectSession: null
         }
       });

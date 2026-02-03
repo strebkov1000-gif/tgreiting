@@ -2,6 +2,10 @@ import { PrismaClient } from '@prisma/client';
 import { RedisClient } from '../../database/redis/client.js';
 import { logger } from '../../utils/logger.js';
 
+// Distributed lock config
+const SYNC_LOCK_KEY = 'leaderboard:sync:lock';
+const SYNC_LOCK_TTL = 300; // 5 minutes max lock time
+
 export class LeaderboardSyncJob {
   constructor(
     private prisma: PrismaClient,
@@ -9,19 +13,59 @@ export class LeaderboardSyncJob {
   ) {}
 
   /**
+   * Acquire distributed lock to prevent concurrent syncs
+   * Uses Redis SET with NX and EX options
+   */
+  private async acquireLock(): Promise<boolean> {
+    try {
+      const client = this.redis.getClient();
+      const lockId = `${process.pid}-${Date.now()}`;
+
+      // SET key value EX seconds NX - only set if not exists
+      const result = await client.set(SYNC_LOCK_KEY, lockId, 'EX', SYNC_LOCK_TTL, 'NX');
+
+      return result === 'OK';
+    } catch (error) {
+      logger.error('Failed to acquire sync lock:', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Release distributed lock
+   */
+  private async releaseLock(): Promise<void> {
+    try {
+      const client = this.redis.getClient();
+      await client.del(SYNC_LOCK_KEY);
+    } catch (error) {
+      logger.error('Failed to release sync lock:', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
    * Sync leaderboard from PostgreSQL to Redis
    * Runs periodically (every 5 minutes) to ensure consistency
+   * Uses distributed lock to prevent concurrent syncs in multi-instance deployments
    */
   async syncLeaderboard(): Promise<void> {
+    // Try to acquire distributed lock
+    const lockAcquired = await this.acquireLock();
+    if (!lockAcquired) {
+      logger.info('Leaderboard sync skipped - another instance is syncing');
+      return;
+    }
+
     try {
       const startTime = Date.now();
       logger.info('Starting leaderboard sync');
 
-      // Get all users with their scores
+      // Get all users with their scores (including those with 0 points)
       const users = await this.prisma.user.findMany({
-        where: {
-          totalPoints: { gt: 0 } // Only users with points
-        },
         select: {
           id: true,
           totalPoints: true
@@ -59,6 +103,9 @@ export class LeaderboardSyncJob {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       throw error;
+    } finally {
+      // Always release the lock
+      await this.releaseLock();
     }
   }
 
@@ -157,10 +204,8 @@ export class LeaderboardSyncJob {
       // Count in Redis
       const redisCount = await client.zcard('leaderboard');
 
-      // Count in database
-      const dbCount = await this.prisma.user.count({
-        where: { totalPoints: { gt: 0 } }
-      });
+      // Count in database (all users)
+      const dbCount = await this.prisma.user.count();
 
       const inSync = redisCount === dbCount;
 

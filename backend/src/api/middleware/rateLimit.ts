@@ -2,23 +2,89 @@ import rateLimit from 'express-rate-limit';
 import { Request } from 'express';
 import { AuthRequest } from './auth.js';
 import { logger } from '../../utils/logger.js';
+import crypto from 'crypto';
+import { config } from '../../config/index.js';
+
+/**
+ * Securely validate and extract Telegram user ID from init data
+ * Only returns user ID if HMAC signature is valid
+ */
+function getValidatedTelegramUserId(authHeader: string): string | null {
+  if (!authHeader?.startsWith('tma ')) return null;
+
+  try {
+    const initData = authHeader.slice(4);
+    const params = new URLSearchParams(initData);
+
+    // Verify HMAC signature first
+    const hash = params.get('hash');
+    if (!hash) return null;
+
+    // Build data check string (sorted params without hash)
+    const checkParams = new URLSearchParams(params);
+    checkParams.delete('hash');
+    const sortedParams = Array.from(checkParams.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+
+    // Validate signature
+    const secretKey = crypto
+      .createHmac('sha256', 'WebAppData')
+      .update(config.bot.token)
+      .digest();
+
+    const expectedHash = crypto
+      .createHmac('sha256', secretKey)
+      .update(sortedParams)
+      .digest('hex');
+
+    if (hash !== expectedHash) return null;
+
+    // Check auth_date (not older than 5 minutes for rate limiting)
+    const authDate = parseInt(params.get('auth_date') || '0');
+    const now = Math.floor(Date.now() / 1000);
+    if (now - authDate > 300) return null; // 5 minutes
+
+    // Extract user ID
+    const userStr = params.get('user');
+    if (userStr) {
+      const user = JSON.parse(decodeURIComponent(userStr));
+      if (user.id) return String(user.id);
+    }
+  } catch {
+    // Invalid data
+  }
+  return null;
+}
 
 /**
  * General API rate limiter
- * 100 requests per 15 minutes per IP/user
+ * 200 requests per 15 minutes per IP + validated telegramId
+ * SECURITY: Only uses telegramId after HMAC validation to prevent spoofing
  */
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 200,
   message: {
     error: 'Too Many Requests',
     message: 'Too many requests from this IP, please try again later.'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Use IP address as key
+  // Use validated telegramId + IP combo for better rate limiting
   keyGenerator: (req: Request) => {
-    return req.ip || 'unknown';
+    const ip = req.ip || 'unknown';
+    const authHeader = req.headers.authorization;
+
+    // Only use Telegram ID if signature is valid (prevents spoofing)
+    const validatedUserId = authHeader ? getValidatedTelegramUserId(authHeader) : null;
+
+    if (validatedUserId) {
+      // Combine IP and user ID for better tracking
+      return `${ip}:tg:${validatedUserId}`;
+    }
+    return ip;
   },
   handler: (req, res) => {
     logger.warn('Rate limit exceeded', {
@@ -29,6 +95,44 @@ export const apiLimiter = rateLimit({
     res.status(429).json({
       error: 'Too Many Requests',
       message: 'Rate limit exceeded. Please try again later.',
+      retryAfter: (req as any).rateLimit?.resetTime
+    });
+  }
+});
+
+/**
+ * Leaderboard-specific rate limiter (more permissive for read-only operations)
+ * 300 requests per 15 minutes - leaderboard is read-only and heavily accessed
+ * SECURITY: Uses validated telegramId to prevent rate limit bypass
+ */
+export const leaderboardLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300,
+  message: {
+    error: 'Too Many Requests',
+    message: 'Too many leaderboard requests, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const ip = req.ip || 'unknown';
+    const authHeader = req.headers.authorization;
+    const validatedUserId = authHeader ? getValidatedTelegramUserId(authHeader) : null;
+
+    if (validatedUserId) {
+      return `${ip}:tg:${validatedUserId}`;
+    }
+    return ip;
+  },
+  handler: (req, res) => {
+    logger.warn('Leaderboard rate limit exceeded', {
+      ip: req.ip,
+      path: req.path
+    });
+
+    res.status(429).json({
+      error: 'Too Many Requests',
+      message: 'Leaderboard rate limit exceeded. Please try again later.',
       retryAfter: (req as any).rateLimit?.resetTime
     });
   }

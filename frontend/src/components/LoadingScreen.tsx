@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface LoadingScreenProps {
   onComplete?: () => void;
@@ -8,6 +8,12 @@ interface LoadingScreenProps {
 export default function LoadingScreen({ onComplete, duration = 2000 }: LoadingScreenProps) {
   const [progress, setProgress] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
+  const onCompleteRef = useRef(onComplete);
+
+  // Keep ref updated
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   useEffect(() => {
     const interval = 50;
@@ -22,9 +28,9 @@ export default function LoadingScreen({ onComplete, duration = 2000 }: LoadingSc
           setTimeout(() => {
             setIsVisible(false);
             setTimeout(() => {
-              onComplete?.();
-            }, 500);
-          }, 300);
+              onCompleteRef.current?.();
+            }, 400);
+          }, 200);
           return 100;
         }
         return next;
@@ -32,7 +38,7 @@ export default function LoadingScreen({ onComplete, duration = 2000 }: LoadingSc
     }, interval);
 
     return () => clearInterval(timer);
-  }, [duration, onComplete]);
+  }, [duration]);
 
   if (!isVisible) return null;
 

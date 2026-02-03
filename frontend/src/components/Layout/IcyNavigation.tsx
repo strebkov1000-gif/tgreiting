@@ -1,16 +1,27 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useLanguage } from '../../i18n/LanguageContext';
 import SnowMountain from '../icons/SnowMountain';
 import Snowman from '../icons/Snowman';
 import Prize from '../icons/Prize';
 
-const navItems = [
-  { path: '/', icon: 'mountain', label: 'Top' },
-  { path: '/profile', icon: 'snowman', label: 'Profile' },
-  { path: '/prizes', icon: 'prize', label: 'Prizes' },
-];
+// Tasks icon component
+const TasksIcon = ({ size = 24 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
 export default function IcyNavigation() {
   const location = useLocation();
+  const { t } = useLanguage();
+
+  const navItems = [
+    { path: '/', icon: 'mountain', label: t.nav.leaderboard },
+    { path: '/tasks', icon: 'tasks', label: t.nav.tasks },
+    { path: '/profile', icon: 'snowman', label: t.nav.profile },
+    { path: '/prizes', icon: 'prize', label: t.nav.prizes },
+  ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50">
@@ -19,7 +30,7 @@ export default function IcyNavigation() {
 
       {/* Navigation content */}
       <div className="relative max-w-7xl mx-auto px-4 pb-2 pt-3">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
@@ -49,6 +60,8 @@ export default function IcyNavigation() {
                     `}>
                       {item.icon === 'mountain' ? (
                         <SnowMountain size={28} />
+                      ) : item.icon === 'tasks' ? (
+                        <TasksIcon size={28} />
                       ) : item.icon === 'snowman' ? (
                         <Snowman size={28} />
                       ) : item.icon === 'prize' ? (

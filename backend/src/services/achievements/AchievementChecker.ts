@@ -10,17 +10,25 @@ import { AchievementService, AchievementUnlock } from './AchievementService.js';
 type AchievementCondition = (data: any) => boolean;
 
 const ACHIEVEMENT_CONDITIONS: Record<string, AchievementCondition> = {
-  // Only wallet achievement is active for now
+  // Wallet achievement
   'wallet_connected': (data: { hasWallet: boolean }) => data.hasWallet === true,
 
-  // TODO: Add conditions for other achievements later
-  // 'points_100': (data) => data.totalPoints >= 100,
-  // 'streak_7': (data) => data.streak >= 7,
-  // 'referrer_1': (data) => data.referralCount >= 1,
-  // 'first_nft': (data) => data.nftCount >= 1,
-  // 'top_100': (data) => data.rank !== null && data.rank <= 100,
-  // 'points_1000': (data) => data.totalPoints >= 1000,
-  // 'streak_30': (data) => data.streak >= 30,
+  // Referral achievement - invite first friend
+  'referrer_1': (data: { referralCount: number }) => data.referralCount >= 1,
+
+  // NFT achievement - own first NFT
+  'first_nft': (data: { nftCount: number }) => data.nftCount >= 1,
+
+  // Points achievements
+  'points_100': (data: { totalPoints: number }) => data.totalPoints >= 100,
+  'points_1000': (data: { totalPoints: number }) => data.totalPoints >= 1000,
+
+  // Streak achievements
+  'streak_7': (data: { streak: number }) => data.streak >= 7,
+  'streak_30': (data: { streak: number }) => data.streak >= 30,
+
+  // Leaderboard achievement
+  'top_100': (data: { rank: number | null }) => data.rank !== null && data.rank <= 100,
 };
 
 export class AchievementChecker {
@@ -31,7 +39,6 @@ export class AchievementChecker {
 
   /**
    * Check all achievements for user
-   * Currently only checks wallet achievement
    */
   async checkUserAchievements(userId: string, rank?: number | null): Promise<AchievementUnlock[]> {
     try {
@@ -39,6 +46,14 @@ export class AchievementChecker {
 
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+        include: {
+          _count: {
+            select: {
+              referrals: true,
+              nfts: true
+            }
+          }
+        }
       });
 
       if (!user) {
@@ -46,9 +61,25 @@ export class AchievementChecker {
         return unlocks;
       }
 
-      // Only check wallet achievement for now
-      const walletUnlocks = await this.checkWalletAchievement(user);
-      unlocks.push(...walletUnlocks);
+      // Build user data for condition checks
+      const userData = {
+        hasWallet: !!user.walletAddress,
+        referralCount: user._count.referrals,
+        nftCount: user._count.nfts,
+        totalPoints: user.totalPoints,
+        streak: user.currentStreak,
+        rank: rank ?? null
+      };
+
+      // Check all achievements
+      for (const [achievementKey, condition] of Object.entries(ACHIEVEMENT_CONDITIONS)) {
+        if (condition(userData)) {
+          const unlock = await this.achievementService.unlockAchievement(userId, achievementKey);
+          if (unlock) {
+            unlocks.push(unlock);
+          }
+        }
+      }
 
       if (unlocks.length > 0) {
         logger.info('Achievements unlocked', {
@@ -87,7 +118,6 @@ export class AchievementChecker {
 
   /**
    * Check specific achievement category
-   * Currently only 'wallet' category is active
    */
   async checkAchievementCategory(
     userId: string,
@@ -97,19 +127,56 @@ export class AchievementChecker {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
+        include: {
+          _count: {
+            select: {
+              referrals: true,
+              nfts: true
+            }
+          }
+        }
       });
 
       if (!user) {
         return [];
       }
 
-      // Only wallet category is active for now
-      if (category === 'wallet') {
-        return await this.checkWalletAchievement(user);
+      const unlocks: AchievementUnlock[] = [];
+
+      // Map categories to achievement keys
+      const categoryAchievements: Record<string, string[]> = {
+        wallet: ['wallet_connected'],
+        social: ['referrer_1'],
+        nft: ['first_nft'],
+        points: ['points_100', 'points_1000'],
+        streak: ['streak_7', 'streak_30'],
+        leaderboard: ['top_100'],
+        special: ['wallet_connected']
+      };
+
+      const achievementsToCheck = categoryAchievements[category] || [];
+
+      // Build user data for condition checks
+      const userData = {
+        hasWallet: !!user.walletAddress,
+        referralCount: user._count.referrals,
+        nftCount: user._count.nfts,
+        totalPoints: user.totalPoints,
+        streak: user.currentStreak,
+        rank: rank ?? null
+      };
+
+      for (const achievementKey of achievementsToCheck) {
+        const condition = ACHIEVEMENT_CONDITIONS[achievementKey];
+        if (condition && condition(userData)) {
+          const unlock = await this.achievementService.unlockAchievement(userId, achievementKey);
+          if (unlock) {
+            unlocks.push(unlock);
+          }
+        }
       }
 
-      // Other categories disabled for now
-      return [];
+      return unlocks;
     } catch (error) {
       logger.error('Failed to check achievement category:', {
         userId,

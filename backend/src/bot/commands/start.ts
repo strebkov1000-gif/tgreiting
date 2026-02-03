@@ -5,10 +5,18 @@ import { prisma } from '../../database/prisma/client.js';
 import { redis } from '../../database/redis/client.js';
 import { LeaderboardService } from '../../services/leaderboard/LeaderboardService.js';
 import { VisitStreakService } from '../../services/streak/VisitStreakService.js';
+import { AchievementChecker } from '../../services/achievements/AchievementChecker.js';
+import { AchievementService } from '../../services/achievements/AchievementService.js';
+import { PointsService } from '../../services/points/PointsService.js';
+import { ReferralRewardService } from '../../services/referral/ReferralRewardService.js';
 import { logger } from '../../utils/logger.js';
 
 const leaderboardService = new LeaderboardService(prisma, redis);
 const visitStreakService = new VisitStreakService(prisma);
+const pointsService = new PointsService(prisma);
+const achievementService = new AchievementService(prisma, pointsService);
+const achievementChecker = new AchievementChecker(prisma, achievementService);
+const referralRewardService = new ReferralRewardService(prisma);
 
 export async function startCommand(ctx: CommandContext<BotContext>) {
   try {
@@ -19,11 +27,12 @@ export async function startCommand(ctx: CommandContext<BotContext>) {
     const args = ctx.match;
     const referralCode = args && typeof args === 'string' ? args.trim() : null;
 
-    // Handle referral with multi-level rewards
-    // Level 1 (direct): 100 points
-    // Level 2 (referrer of referrer): 25 points
-    // Level 3 (referrer of referrer of referrer): 10 points
-    // IMPORTANT: Only process referrals for NEW users to prevent existing users from being counted
+    // Handle referral system:
+    // - New user gets +5m instantly on registration
+    // - L1 referrer gets +5m when new user reaches level 2
+    // - L2 referrer gets +1m when new user reaches level 2
+    // - Milestone bonuses: 50 refs = +500m, 100 refs = +1000m
+    // IMPORTANT: Only process referrals for NEW users
     const isNewUser = ctx.session.isNewUser;
 
     if (referralCode && userId && !isNewUser) {
@@ -44,86 +53,28 @@ export async function startCommand(ctx: CommandContext<BotContext>) {
           // Find the direct referrer (Level 1)
           const level1Referrer = await prisma.user.findUnique({
             where: { referralCode },
-            select: {
-              id: true,
-              telegramId: true,
-              referredBy: true,
-            },
+            select: { id: true },
           });
 
           if (level1Referrer && level1Referrer.id !== userId) {
-            // Update user with referrer
+            // Save referrer relationship
             await prisma.user.update({
               where: { id: userId },
               data: { referredBy: level1Referrer.id },
             });
 
-            // Award Level 1: 100 points to direct referrer
-            await prisma.pointTransaction.create({
-              data: {
-                userId: level1Referrer.id,
-                points: 100,
-                activityType: 'referral',
-                description: `Invited ${firstName} (Level 1)`,
-              },
+            logger.info(`User ${userId} referred by ${level1Referrer.id}`);
+
+            // Award welcome bonus to new user (+5m)
+            await referralRewardService.awardNewUserBonus(userId);
+
+            // Update leaderboard for new user
+            const updatedUser = await prisma.user.findUnique({
+              where: { id: userId },
+              select: { totalPoints: true }
             });
-            const updatedL1 = await prisma.user.update({
-              where: { id: level1Referrer.id },
-              data: { totalPoints: { increment: 100 } },
-            });
-            await leaderboardService.updateUserPosition(level1Referrer.id, updatedL1.totalPoints);
-            logger.info(`Referral L1: ${level1Referrer.id} gets 100 points for inviting ${userId}`);
-
-            // Check for Level 2 referrer
-            if (level1Referrer.referredBy) {
-              const level2Referrer = await prisma.user.findUnique({
-                where: { id: level1Referrer.referredBy },
-                select: { id: true, referredBy: true },
-              });
-
-              if (level2Referrer) {
-                // Award Level 2: 25 points
-                await prisma.pointTransaction.create({
-                  data: {
-                    userId: level2Referrer.id,
-                    points: 25,
-                    activityType: 'referral_l2',
-                    description: `Referral chain bonus (Level 2)`,
-                  },
-                });
-                const updatedL2 = await prisma.user.update({
-                  where: { id: level2Referrer.id },
-                  data: { totalPoints: { increment: 25 } },
-                });
-                await leaderboardService.updateUserPosition(level2Referrer.id, updatedL2.totalPoints);
-                logger.info(`Referral L2: ${level2Referrer.id} gets 25 points`);
-
-                // Check for Level 3 referrer
-                if (level2Referrer.referredBy) {
-                  const level3Referrer = await prisma.user.findUnique({
-                    where: { id: level2Referrer.referredBy },
-                    select: { id: true },
-                  });
-
-                  if (level3Referrer) {
-                    // Award Level 3: 10 points
-                    await prisma.pointTransaction.create({
-                      data: {
-                        userId: level3Referrer.id,
-                        points: 10,
-                        activityType: 'referral_l3',
-                        description: `Referral chain bonus (Level 3)`,
-                      },
-                    });
-                    const updatedL3 = await prisma.user.update({
-                      where: { id: level3Referrer.id },
-                      data: { totalPoints: { increment: 10 } },
-                    });
-                    await leaderboardService.updateUserPosition(level3Referrer.id, updatedL3.totalPoints);
-                    logger.info(`Referral L3: ${level3Referrer.id} gets 10 points`);
-                  }
-                }
-              }
+            if (updatedUser) {
+              await leaderboardService.updateUserPosition(userId, updatedUser.totalPoints);
             }
           }
         }
@@ -136,13 +87,23 @@ export async function startCommand(ctx: CommandContext<BotContext>) {
     if (userId) {
       try {
         await visitStreakService.processVisit(userId);
+
+        // Always check referral rewards (user might have gained points elsewhere)
+        await referralRewardService.checkAndAwardReferralRewards(userId, leaderboardService);
       } catch (error) {
         logger.error('Visit streak processing error:', error);
       }
     }
 
     // Welcome message
-    const welcomeMessage = `тут будет крутой текст для приветсвия`;
+    const welcomeMessage = `🏔 *Призы участникам лидерборда каждый сезон*
+
+Если ты холдер стикеров StickerPack или Goodies, то занимай свое место в лидерборде, выполняй задания и получай призы!
+
+🎁 Кстати, первые участники и инфлюенсеры будут в выигрыше!
+
+📩 По вопросам к @baron\\_creator
+🛠 Техническое сопровождение: @namewasntdrown`;
 
     // Keyboard with two buttons
     // Note: Web App button requires HTTPS URL in production

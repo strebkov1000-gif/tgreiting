@@ -25,7 +25,7 @@ export interface TelegramUserData {
  * 4. Generate secret key: HMAC-SHA256('WebAppData', BOT_TOKEN)
  * 5. Calculate hash: HMAC-SHA256(data-check-string, secret_key)
  * 6. Compare calculated hash with provided hash
- * 7. Check auth_date (not older than 24 hours)
+ * 7. Check auth_date (not older than 5 minutes - security best practice)
  */
 export function validateTelegramWebAppData(initData: string): TelegramUserData | null {
   try {
@@ -79,15 +79,26 @@ export function validateTelegramWebAppData(initData: string): TelegramUserData |
 
     const userData = JSON.parse(userParam);
 
-    // Check auth_date (not older than 24 hours)
+    // Check auth_date (not older than 5 minutes - security best practice)
     const authDate = parseInt(params.get('auth_date') || '0');
     const now = Math.floor(Date.now() / 1000);
+    const AUTH_TIMEOUT_SECONDS = 300; // 5 minutes
 
-    if (now - authDate > 86400) {
+    if (now - authDate > AUTH_TIMEOUT_SECONDS) {
       logger.warn('Telegram auth: auth_date too old', {
         authDate,
         now,
-        diff: now - authDate
+        diff: now - authDate,
+        maxAllowed: AUTH_TIMEOUT_SECONDS
+      });
+      return null;
+    }
+
+    // Prevent future timestamps (clock skew tolerance: 60 seconds)
+    if (authDate - now > 60) {
+      logger.warn('Telegram auth: auth_date in future', {
+        authDate,
+        now
       });
       return null;
     }
@@ -135,15 +146,16 @@ export function extractTelegramUserId(initData: string): number | null {
 }
 
 /**
- * Check if initData is expired (> 24 hours old)
+ * Check if initData is expired (> 5 minutes old)
  */
 export function isInitDataExpired(initData: string): boolean {
   try {
     const params = new URLSearchParams(initData);
     const authDate = parseInt(params.get('auth_date') || '0');
     const now = Math.floor(Date.now() / 1000);
+    const AUTH_TIMEOUT_SECONDS = 300; // 5 minutes
 
-    return now - authDate > 86400;
+    return now - authDate > AUTH_TIMEOUT_SECONDS;
   } catch {
     return true;
   }

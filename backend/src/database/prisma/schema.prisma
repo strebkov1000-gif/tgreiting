@@ -31,6 +31,10 @@ model User {
   maxStreak         Int       @default(0)
   lastCheckIn       DateTime?
 
+  // Hold Bonus
+  diamondHandsAwarded   Boolean   @default(false)  // True if +500m Diamond Hands bonus was awarded
+  diamondHandsAwardedAt DateTime?                  // When Diamond Hands was awarded
+
   // Referrals
   referredBy        String?
   referralCode      String    @unique @default(cuid())
@@ -45,6 +49,7 @@ model User {
   nfts              UserNFT[]
   achievements      UserAchievement[]
   chatMemberships   ChatMember[]
+  taskCompletions   UserTaskCompletion[]
   referrals         User[]    @relation("Referrals")
   referrer          User?     @relation("Referrals", fields: [referredBy], references: [id])
 
@@ -90,9 +95,15 @@ model UserNFT {
   id              String   @id @default(uuid())
   userId          String
   nftId           String
-  detectedAt      DateTime @default(now())
+  detectedAt      DateTime @default(now())  // When we first detected this NFT in our system
+  ownedSince      DateTime @default(now())  // When NFT was actually acquired on blockchain (from TON API)
   lastScanned     DateTime @default(now())
   pointsAwarded   Int      @default(0)
+
+  // Hold bonus tracking
+  lastHoldBonusAt     DateTime?  // Last time hold bonus was calculated
+  lastHoldBonusMonths Int        @default(0) // Months at last bonus calculation
+  totalHoldBonus      Int        @default(0) // Total hold bonus awarded for this NFT
 
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   nft             NFTItem  @relation(fields: [nftId], references: [id], onDelete: Cascade)
@@ -100,6 +111,8 @@ model UserNFT {
   @@unique([userId, nftId])
   @@index([userId])
   @@index([nftId])
+  @@index([detectedAt])
+  @@index([ownedSince])
 }
 
 model PointTransaction {
@@ -192,4 +205,40 @@ model ChatMember {
   @@unique([chatId, userId])
   @@index([userId])
   @@index([chatId])
+}
+
+// Social Tasks (subscribe to channels, etc.)
+model SocialTask {
+  id              String   @id @default(uuid())
+  key             String   @unique  // "subscribe_devsprout", "join_community"
+  title           String
+  description     String
+  reward          Int      @default(50)  // points/meters
+  type            String   // "telegram_channel", "telegram_group", "twitter", etc.
+  targetId        String   // channel username or ID
+  targetUrl       String   // https://t.me/DevSprout
+  icon            String   @default("channel")
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+
+  completions     UserTaskCompletion[]
+  createdAt       DateTime @default(now())
+
+  @@index([isActive, sortOrder])
+  @@index([key])
+}
+
+model UserTaskCompletion {
+  id              String   @id @default(uuid())
+  userId          String
+  taskId          String
+  completedAt     DateTime @default(now())
+  pointsAwarded   Int      @default(0)
+
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task            SocialTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, taskId])
+  @@index([userId])
+  @@index([taskId])
 }

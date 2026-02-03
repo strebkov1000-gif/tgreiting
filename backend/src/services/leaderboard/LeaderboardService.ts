@@ -3,6 +3,11 @@ import { RedisClient } from '../../database/redis/client.js';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config/index.js';
 
+// Track if sync is in progress to avoid multiple concurrent syncs
+let syncInProgress = false;
+let lastSyncAttempt = 0;
+const SYNC_COOLDOWN_MS = 30000; // 30 seconds between sync attempts
+
 export interface LeaderboardEntry {
   rank: number;
   userId: string;
@@ -58,6 +63,79 @@ export class LeaderboardService {
   ) {}
 
   /**
+   * Trigger background sync if Redis is empty
+   * This is a safety net - normally the cron job handles syncing
+   */
+  private async triggerSyncIfEmpty(): Promise<void> {
+    // Avoid too frequent sync attempts
+    const now = Date.now();
+    if (syncInProgress || (now - lastSyncAttempt) < SYNC_COOLDOWN_MS) {
+      return;
+    }
+
+    try {
+      const client = this.redis.getClient();
+      const size = await client.zcard('leaderboard');
+
+      if (size === 0) {
+        lastSyncAttempt = now;
+        syncInProgress = true;
+
+        logger.warn('Redis leaderboard is empty, triggering background sync');
+
+        // Run sync in background (don't await)
+        this.syncLeaderboardFromDB().finally(() => {
+          syncInProgress = false;
+        });
+      }
+    } catch (error) {
+      logger.error('Error checking leaderboard sync status:', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Sync leaderboard from PostgreSQL to Redis
+   * Called automatically when Redis is detected as empty
+   */
+  private async syncLeaderboardFromDB(): Promise<void> {
+    try {
+      const startTime = Date.now();
+      logger.info('Starting emergency leaderboard sync from DB');
+
+      const users = await this.prisma.user.findMany({
+        select: { id: true, totalPoints: true },
+        orderBy: { totalPoints: 'desc' }
+      });
+
+      if (users.length === 0) {
+        logger.info('No users to sync');
+        return;
+      }
+
+      const client = this.redis.getClient();
+      const pipeline = client.pipeline();
+
+      for (const user of users) {
+        pipeline.zadd('leaderboard', user.totalPoints, user.id);
+      }
+
+      await pipeline.exec();
+
+      const duration = Date.now() - startTime;
+      logger.info('Emergency leaderboard sync completed', {
+        usersCount: users.length,
+        duration: `${duration}ms`
+      });
+    } catch (error) {
+      logger.error('Emergency leaderboard sync failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
    * Get top users from Redis sorted set (fast)
    * Falls back to PostgreSQL if Redis fails or returns insufficient results
    */
@@ -70,14 +148,31 @@ export class LeaderboardService {
       // Try to get from Redis first
       const redisEntries = await this.redis.getLeaderboard(start, end);
 
-      // Fall back to PostgreSQL if Redis is empty or returns fewer results than expected
-      // This ensures we show all users including those with 0 points
-      if (redisEntries.length === 0 || (offset === 0 && redisEntries.length < limit)) {
-        logger.warn('Redis leaderboard insufficient, falling back to PostgreSQL', {
-          redisCount: redisEntries.length,
-          requestedLimit: limit
-        });
+      // If Redis returns empty results and offset is 0, Redis is empty - fall back to PostgreSQL
+      // If offset > 0 and empty, it just means we're past the end of the data - that's normal
+      if (redisEntries.length === 0 && offset === 0) {
+        logger.warn('Redis leaderboard empty, falling back to PostgreSQL');
+
+        // Trigger background sync since Redis is empty
+        this.triggerSyncIfEmpty();
+
         return await this.getTopUsersFromDB(pagination);
+      }
+
+      // If offset > 0 but Redis returned nothing, check if Redis has any data at all
+      if (redisEntries.length === 0 && offset > 0) {
+        const client = this.redis.getClient();
+        const totalInRedis = await client.zcard('leaderboard');
+
+        // Redis is truly empty - fall back to PostgreSQL
+        if (totalInRedis === 0) {
+          logger.warn('Redis leaderboard empty (checked via zcard), falling back to PostgreSQL');
+          this.triggerSyncIfEmpty();
+          return await this.getTopUsersFromDB(pagination);
+        }
+
+        // Redis has data but offset is past the end - return empty (normal case)
+        return [];
       }
 
       // Enrich with user data from database
@@ -156,7 +251,7 @@ export class LeaderboardService {
 
   /**
    * Search users by username or firstName
-   * Uses PostgreSQL full-text search
+   * Uses PostgreSQL ILIKE search with batch rank lookup (fixes N+1 query)
    */
   async searchUsers(query: string, limit: number): Promise<LeaderboardEntry[]> {
     try {
@@ -180,25 +275,24 @@ export class LeaderboardService {
         take: limit
       });
 
-      // Get ranks from Redis for each user
-      const entries: LeaderboardEntry[] = [];
-
-      for (const user of users) {
-        const rank = await this.getUserRank(user.id);
-
-        entries.push({
-          rank: rank || 0,
-          userId: user.id,
-          telegramId: user.telegramId,
-          username: user.username || undefined,
-          firstName: user.firstName || undefined,
-          avatarUrl: user.avatarUrl || undefined,
-          totalPoints: user.totalPoints,
-          nftCount: user.nftCount
-        });
+      if (users.length === 0) {
+        return [];
       }
 
-      return entries;
+      // Batch get ranks from Redis (fixes N+1 query problem)
+      const userIds = users.map(u => u.id);
+      const ranksMap = await this.redis.getUserRanksBatch(userIds);
+
+      return users.map(user => ({
+        rank: ranksMap.get(user.id) || 0,
+        userId: user.id,
+        telegramId: user.telegramId,
+        username: user.username || undefined,
+        firstName: user.firstName || undefined,
+        avatarUrl: user.avatarUrl || undefined,
+        totalPoints: user.totalPoints,
+        nftCount: user.nftCount
+      }));
     } catch (error) {
       logger.error('Search users error:', {
         query,

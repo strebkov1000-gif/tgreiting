@@ -1,7 +1,11 @@
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
-import { useCallback, useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useWalletScan } from '../hooks/useWalletScan';
+import { useWalletScanStore } from '../store/walletScanStore';
+import WalletScanProgress from './WalletScanProgress';
+import { useLanguage } from '../i18n/LanguageContext';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://icetop.app/api';
+const SCANNED_WALLET_KEY = 'ice_scanned_wallet';
 
 // Wallet icon
 const WalletIcon = ({ className = '' }: { className?: string }) => (
@@ -21,33 +25,111 @@ const DisconnectIcon = ({ className = '' }: { className?: string }) => (
   </svg>
 );
 
+// Refresh/Rescan icon
+const RefreshIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9v-3m0-15v3m0-3a9 9 0 0 0-9 9" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points="23,4 23,10 17,10" strokeLinecap="round" strokeLinejoin="round" />
+    <polyline points="1,20 1,14 7,14" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/**
+ * Check if wallet was already scanned (persisted in localStorage)
+ */
+function getScannedWallet(): string | null {
+  try {
+    return localStorage.getItem(SCANNED_WALLET_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mark wallet as scanned
+ */
+function setScannedWallet(address: string): void {
+  try {
+    localStorage.setItem(SCANNED_WALLET_KEY, address);
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
+/**
+ * Clear scanned wallet record
+ */
+function clearScannedWallet(): void {
+  try {
+    localStorage.removeItem(SCANNED_WALLET_KEY);
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 export default function WalletButton() {
+  const { t } = useLanguage();
   const [tonConnectUI] = useTonConnectUI();
   const wallet = useTonWallet();
+  const { scanWallet, isScanning } = useWalletScan();
+  const { reset, progress } = useWalletScanStore();
+  const [showProgress, setShowProgress] = useState(false);
+  const previousWalletRef = useRef<string | null>(null);
+  const isFirstRenderRef = useRef(true);
 
-  // Send wallet address to backend when connected
-  const saveWalletToBackend = useCallback(async (address: string) => {
-    try {
-      const initData = window.Telegram?.WebApp?.initData || '';
-
-      await fetch(`${API_URL}/user/wallet`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-telegram-init-data': initData,
-        },
-        body: JSON.stringify({ walletAddress: address }),
-      });
-    } catch (error) {
-      console.error('Failed to save wallet:', error);
-    }
-  }, []);
-
+  // Auto-disconnect wallet if it's already connected to another account
   useEffect(() => {
-    if (wallet?.account?.address) {
-      saveWalletToBackend(wallet.account.address);
+    if (progress.errorCode === 'WALLET_ALREADY_CONNECTED' && wallet) {
+      // Clear the scanned wallet record since it failed
+      clearScannedWallet();
+      // Disconnect after a short delay so user can see the error message
+      const timer = setTimeout(async () => {
+        try {
+          await tonConnectUI.disconnect();
+          previousWalletRef.current = null;
+        } catch (error) {
+          console.error('Failed to disconnect wallet:', error);
+        }
+      }, 3500); // Slightly after the modal auto-closes
+      return () => clearTimeout(timer);
     }
-  }, [wallet?.account?.address, saveWalletToBackend]);
+  }, [progress.errorCode, wallet, tonConnectUI]);
+
+  // Trigger scan ONLY for NEW wallet connections
+  // Not on app reload with existing wallet
+  useEffect(() => {
+    const currentAddress = wallet?.account?.address;
+    const scannedWallet = getScannedWallet();
+
+    // Skip on first render if wallet is already connected and scanned
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      if (currentAddress) {
+        previousWalletRef.current = currentAddress;
+        // If this wallet was already scanned, don't show progress
+        if (scannedWallet === currentAddress) {
+          return;
+        }
+      }
+    }
+
+    if (currentAddress && currentAddress !== previousWalletRef.current) {
+      // NEW wallet connection detected
+      previousWalletRef.current = currentAddress;
+
+      // Only show progress if this is a different wallet than what we scanned before
+      if (scannedWallet !== currentAddress) {
+        setShowProgress(true);
+        scanWallet(currentAddress);
+        setScannedWallet(currentAddress);
+      }
+    } else if (!currentAddress && previousWalletRef.current) {
+      // Wallet disconnected
+      previousWalletRef.current = null;
+      clearScannedWallet();
+      reset();
+    }
+  }, [wallet?.account?.address, scanWallet, reset]);
 
   const handleConnect = async () => {
     try {
@@ -60,9 +142,27 @@ export default function WalletButton() {
   const handleDisconnect = async () => {
     try {
       await tonConnectUI.disconnect();
+      previousWalletRef.current = null;
+      reset();
     } catch (error) {
       console.error('Failed to disconnect wallet:', error);
     }
+  };
+
+  const handleRescan = () => {
+    if (!wallet?.account?.address || isScanning) return;
+
+    // Clear the scanned wallet record to force rescan
+    clearScannedWallet();
+
+    // Trigger new scan
+    setShowProgress(true);
+    scanWallet(wallet.account.address);
+    setScannedWallet(wallet.account.address);
+  };
+
+  const handleCloseProgress = () => {
+    setShowProgress(false);
   };
 
   const formatAddress = (address: string) => {
@@ -70,36 +170,56 @@ export default function WalletButton() {
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
   };
 
-  if (wallet) {
-    return (
-      <div className="flex items-center gap-2">
-        {/* Connected wallet display */}
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-xs font-semibold text-cyan-300">
-            {formatAddress(wallet.account.address)}
-          </span>
-        </div>
-
-        {/* Disconnect button */}
-        <button
-          onClick={handleDisconnect}
-          className="p-2 rounded-xl bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-all"
-          title="Disconnect wallet"
-        >
-          <DisconnectIcon className="w-4 h-4" />
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <button
-      onClick={handleConnect}
-      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold text-sm hover:from-cyan-400 hover:to-blue-400 transition-all shadow-[0_0_20px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_rgba(34,211,238,0.5)]"
-    >
-      <WalletIcon className="w-4 h-4" />
-      <span>Connect</span>
-    </button>
+    <>
+      {wallet ? (
+        <div className="flex items-center gap-2">
+          {/* Connected wallet display */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-xs font-semibold text-cyan-300">
+              {formatAddress(wallet.account.address)}
+            </span>
+          </div>
+
+          {/* Rescan button */}
+          <button
+            onClick={handleRescan}
+            disabled={isScanning}
+            className={`p-2 rounded-xl border transition-all ${
+              isScanning
+                ? 'bg-gray-500/20 border-gray-500/30 text-gray-400 cursor-not-allowed'
+                : 'bg-cyan-500/20 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/30'
+            }`}
+            title={t.wallet?.rescan || 'Rescan NFTs'}
+          >
+            <RefreshIcon className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
+          </button>
+
+          {/* Disconnect button */}
+          <button
+            onClick={handleDisconnect}
+            className="p-2 rounded-xl bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-all"
+            title={t.wallet?.disconnect || 'Disconnect wallet'}
+          >
+            <DisconnectIcon className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleConnect}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold text-sm hover:from-cyan-400 hover:to-blue-400 transition-all shadow-[0_0_20px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_rgba(34,211,238,0.5)]"
+        >
+          <WalletIcon className="w-4 h-4" />
+          <span>{t.wallet?.connect || 'Connect'}</span>
+        </button>
+      )}
+
+      {/* Scan Progress Modal */}
+      <WalletScanProgress
+        isOpen={showProgress || isScanning}
+        onClose={handleCloseProgress}
+      />
+    </>
   );
 }

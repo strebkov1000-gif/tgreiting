@@ -46,6 +46,19 @@ export const config = {
   security: {
     jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     sessionSecret: process.env.SESSION_SECRET || 'session-secret-change-in-production',
+    // Admin Telegram IDs (comma-separated)
+    // SECURITY: Validate that IDs are numeric to prevent injection
+    adminTelegramIds: (process.env.ADMIN_TELEGRAM_IDS || '')
+      .split(',')
+      .filter(Boolean)
+      .map(id => id.trim())
+      .filter(id => {
+        if (!/^\d+$/.test(id)) {
+          console.error(`Invalid admin Telegram ID format: ${id} - must be numeric`);
+          return false;
+        }
+        return true;
+      }),
   },
 
   // Environment
@@ -86,6 +99,15 @@ export const config = {
   },
 };
 
+// Weak secret patterns that should not be used in production
+const WEAK_SECRET_PATTERNS = [
+  'dev-secret',
+  'change-in-production',
+  'secret123',
+  'password',
+  'test',
+];
+
 // Validation
 export function validateConfig() {
   const required = {
@@ -99,5 +121,33 @@ export function validateConfig() {
 
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  // In production, validate secrets are strong
+  if (config.isProd) {
+    const secrets = {
+      'JWT_SECRET': config.security.jwtSecret,
+      'SESSION_SECRET': config.security.sessionSecret,
+    };
+
+    for (const [name, value] of Object.entries(secrets)) {
+      // Check minimum length
+      if (value.length < 32) {
+        throw new Error(`${name} must be at least 32 characters in production`);
+      }
+
+      // Check for weak patterns
+      const isWeak = WEAK_SECRET_PATTERNS.some(pattern =>
+        value.toLowerCase().includes(pattern)
+      );
+      if (isWeak) {
+        throw new Error(`${name} contains weak pattern - use a strong random secret in production`);
+      }
+    }
+
+    // Warn if TON API key is missing in production
+    if (!config.ton.apiKey) {
+      console.warn('WARNING: TON_API_KEY not set - NFT scanning may be rate limited');
+    }
   }
 }

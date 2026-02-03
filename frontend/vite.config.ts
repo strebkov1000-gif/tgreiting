@@ -26,6 +26,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // SECURITY: Only enable sourcemaps in development to prevent source code exposure
+    sourcemap: process.env.NODE_ENV === 'development',
   },
 })

@@ -4,6 +4,7 @@ import { validateTelegramWebAppData } from '../utils/telegramAuth.js';
 import { logger } from '../../utils/logger.js';
 import { prisma } from '../../database/prisma/client.js';
 import { VisitStreakService } from '../../services/streak/VisitStreakService.js';
+import { config } from '../../config/index.js';
 
 const visitStreakService = new VisitStreakService(prisma);
 
@@ -195,7 +196,7 @@ export async function optionalAuthMiddleware(
 
 /**
  * Check if user is admin
- * (Add admin logic based on your requirements)
+ * Validates against ADMIN_TELEGRAM_IDS environment variable
  */
 export async function adminMiddleware(
   req: AuthRequest,
@@ -210,12 +211,36 @@ export async function adminMiddleware(
     return;
   }
 
-  // TODO: Implement admin check
-  // For now, all authenticated users are allowed
-  // You can add admin check by:
-  // 1. Adding isAdmin field to User model
-  // 2. Checking against whitelist of admin telegram IDs
-  // 3. Using separate Admin table
+  // Check against admin whitelist
+  const adminIds = config.security.adminTelegramIds;
+
+  if (adminIds.length === 0) {
+    logger.warn('Admin middleware: No admin IDs configured');
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'Admin access not configured'
+    });
+    return;
+  }
+
+  const userTelegramId = req.user.telegramId?.toString();
+
+  if (!userTelegramId || !adminIds.includes(userTelegramId)) {
+    logger.warn('Admin access denied', {
+      userId: req.user.userId,
+      telegramId: userTelegramId
+    });
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'Admin access required'
+    });
+    return;
+  }
+
+  logger.info('Admin access granted', {
+    userId: req.user.userId,
+    telegramId: userTelegramId
+  });
 
   next();
 }

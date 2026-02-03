@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validation.js';
-import { AuthRequest } from '../middleware/auth.js';
+import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { logger } from '../../utils/logger.js';
 import { prisma } from '../../database/prisma/client.js';
 import { z } from 'zod';
@@ -69,8 +69,10 @@ router.get('/:code',
 /**
  * GET /api/referral/stats/:telegramId
  * Get user's referral statistics
+ * SECURITY: Requires auth and user can only access their own stats
  */
 router.get('/stats/:telegramId',
+  authMiddleware,
   validate(z.object({
     params: z.object({
       telegramId: z.string().regex(/^\d+$/)
@@ -79,6 +81,19 @@ router.get('/stats/:telegramId',
   async (req: AuthRequest, res) => {
     try {
       const { telegramId } = req.params;
+
+      // SECURITY: Verify user can only access their own referral stats
+      if (req.user!.telegramId.toString() !== telegramId) {
+        logger.warn('Unauthorized referral stats access attempt', {
+          requestedId: telegramId,
+          actualId: req.user!.telegramId.toString()
+        });
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only access your own referral statistics'
+        });
+        return;
+      }
 
       const user = await prisma.user.findUnique({
         where: { telegramId: BigInt(telegramId) },
@@ -107,11 +122,11 @@ router.get('/stats/:telegramId',
         return;
       }
 
-      // Calculate total points earned from all referral levels
+      // Calculate total points earned from all referral levels (L1 and L2 only)
       const referralPoints = await prisma.pointTransaction.aggregate({
         where: {
           userId: user.id,
-          activityType: { in: ['referral', 'referral_l2', 'referral_l3'] }
+          activityType: { in: ['referral', 'referral_l2'] }
         },
         _sum: {
           points: true
@@ -122,11 +137,30 @@ router.get('/stats/:telegramId',
       const botUsername = process.env.BOT_USERNAME || 'IceTopbot';
       const referralLink = `https://t.me/${botUsername}?start=${user.referralCode}`;
 
+      // Get total referral count for milestone tracking
+      const totalReferralCount = await prisma.user.count({
+        where: { referredBy: user.id }
+      });
+
+      // Milestone bonuses info
+      const milestones = {
+        current: totalReferralCount,
+        next: totalReferralCount < 50 ? 50 : totalReferralCount < 100 ? 100 : null,
+        progress: totalReferralCount < 50
+          ? { target: 50, remaining: 50 - totalReferralCount, reward: '500 meters' }
+          : totalReferralCount < 100
+            ? { target: 100, remaining: 100 - totalReferralCount, reward: '1000 meters + task event' }
+            : null,
+        taskEventUnlocked: totalReferralCount >= 100,
+        taskEventContact: totalReferralCount >= 100 ? '@baron_creator' : null
+      };
+
       res.json({
         referralCode: user.referralCode,
         referralLink,
         totalReferrals: user.referrals.length,
         totalPointsEarned: referralPoints._sum.points || 0,
+        milestones,
         referrals: user.referrals.map(ref => ({
           username: ref.username,
           firstName: ref.firstName,

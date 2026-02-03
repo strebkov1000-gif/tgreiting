@@ -11,7 +11,7 @@ export interface PointsCalculationConfig {
 export interface PointsTransactionInput {
   userId: string;
   points: number;
-  activityType: 'nft_detected' | 'referral' | 'daily_checkin' | 'achievement' | 'chat_boost';
+  activityType: 'nft_detected' | 'referral' | 'daily_checkin' | 'achievement' | 'chat_boost' | 'social_task' | 'hold_bonus';
   metadata?: Record<string, any>;
   description?: string;
 }

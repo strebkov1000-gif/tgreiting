@@ -2,6 +2,8 @@ import { logger } from '../utils/logger.js';
 import { startLeaderboardSyncJob } from './leaderboardSync.js';
 import { startNftScanJob } from './nftScan.js';
 import { startStreakCheckerJob } from './streakChecker.js';
+import { startHoldBonusJob } from './holdBonusJob.js';
+import { startOwnershipDateJob } from './ownershipDateJob.js';
 
 /**
  * Start all background jobs
@@ -14,11 +16,17 @@ export function startBackgroundJobs() {
     // Start leaderboard sync job (every 5 minutes)
     startLeaderboardSyncJob();
 
-    // Start NFT scan job (every 6 hours)
-    startNftScanJob();
+    // DISABLED: NFT scan will be enabled at end of season manually
+    // startNftScanJob();
 
     // Start streak checker job (daily at 00:00 UTC)
     startStreakCheckerJob();
+
+    // DISABLED: Hold bonus will be calculated at end of season manually
+    // startHoldBonusJob();
+
+    // DISABLED: Ownership dates will be fetched at end of season
+    // startOwnershipDateJob();
 
     logger.info('All background jobs started successfully');
   } catch (error) {

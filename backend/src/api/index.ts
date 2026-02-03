@@ -10,23 +10,33 @@ import leaderboardRoutes from './routes/leaderboard.js';
 import nftRoutes from './routes/nft.js';
 import referralRoutes from './routes/referral.js';
 import achievementRoutes from './routes/achievements.js';
+import tasksRoutes from './routes/tasks.js';
 
 // Import middleware
-import { apiLimiter } from './middleware/rateLimit.js';
+import { apiLimiter, leaderboardLimiter } from './middleware/rateLimit.js';
 
 export function createApiServer(): Express {
   const app = express();
 
   // Middleware
   app.use(helmet());
+
+  // SECURITY: CORS configuration - require explicit origin, no wildcard fallback
+  if (!config.miniApp.url) {
+    logger.error('MINI_APP_URL is not configured - CORS will reject all cross-origin requests');
+  }
   app.use(cors({
-    origin: config.miniApp.url || '*',
+    origin: config.miniApp.url || false, // false rejects all cross-origin requests if not configured
     credentials: true
   }));
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // Request size limits to prevent DoS attacks
+  app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
   // Rate limiting for API routes
+  // Use more permissive limiter for leaderboard (read-only, heavily accessed)
+  app.use('/api/leaderboard', leaderboardLimiter);
+  // General rate limiter for other API routes
   app.use('/api', apiLimiter);
 
   // Request logging
@@ -54,7 +64,8 @@ export function createApiServer(): Express {
         leaderboard: '/api/leaderboard',
         nft: '/api/nft',
         referral: '/api/referral',
-        achievements: '/api/achievements'
+        achievements: '/api/achievements',
+        tasks: '/api/tasks'
       },
     });
   });
@@ -65,6 +76,7 @@ export function createApiServer(): Express {
   app.use('/api/nft', nftRoutes);
   app.use('/api/referral', referralRoutes);
   app.use('/api/achievements', achievementRoutes);
+  app.use('/api/tasks', tasksRoutes);
 
   // 404 handler
   app.use((req: Request, res: Response) => {

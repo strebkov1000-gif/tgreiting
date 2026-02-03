@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: icebot_password
       POSTGRES_DB: ice_rating_bot
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,10 +24,10 @@ services:
     container_name: ice-bot-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass icebot_redis_secure_2026
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

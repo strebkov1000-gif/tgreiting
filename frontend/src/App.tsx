@@ -1,9 +1,11 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { LanguageProvider } from './i18n/LanguageContext';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import Prizes from './pages/Prizes';
+import Tasks from './pages/Tasks';
 import Layout from './components/Layout/Layout';
 import LoadingScreen from './components/LoadingScreen';
 
@@ -18,15 +20,58 @@ declare global {
 
 const manifestUrl = import.meta.env.VITE_TON_MANIFEST_URL || 'https://example.com/tonconnect-manifest.json';
 
-function App() {
-  const [isLoading, setIsLoading] = useState(true);
+// Key for tracking if initial load completed
+const INITIAL_LOAD_KEY = 'icetop_initial_loaded';
 
-  useEffect(() => {
-    // Initialize Telegram WebApp
+function App() {
+  // Check if this is a fresh session or returning from minimize
+  const isFirstLoad = useRef(!sessionStorage.getItem(INITIAL_LOAD_KEY));
+  const [isLoading, setIsLoading] = useState(isFirstLoad.current);
+  const [, setForceUpdate] = useState(0);
+
+  // Force re-render function
+  const forceRerender = useCallback(() => {
+    setForceUpdate(prev => prev + 1);
+  }, []);
+
+  // Apply background color immediately to prevent flash
+  const applyBackgroundColor = useCallback(() => {
+    const bgColor = '#0a1628';
+    document.body.style.backgroundColor = bgColor;
+    document.documentElement.style.backgroundColor = bgColor;
+    document.body.style.transition = 'none';
+    document.documentElement.style.transition = 'none';
+
+    // Force repaint
+    void document.body.offsetHeight;
+  }, []);
+
+  // Initialize Telegram WebApp
+  const initTelegramApp = useCallback(() => {
+    // Always apply background first
+    applyBackgroundColor();
+
     if (window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp;
       tg.ready();
+
+      // Expand to full screen
       tg.expand();
+
+      // Request fullscreen mode if available (Telegram WebApp 7.7+)
+      if (tg.requestFullscreen) {
+        tg.requestFullscreen();
+      }
+
+      // Disable vertical swipes to close (keeps app open on swipe down)
+      if (tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+      }
+
+      // Enable closing confirmation
+      if (tg.enableClosingConfirmation) {
+        tg.enableClosingConfirmation();
+      }
 
       // Set header color - Dark blue theme
       if (tg.setHeaderColor) {
@@ -37,32 +82,124 @@ function App() {
       if (tg.setBackgroundColor) {
         tg.setBackgroundColor('#0a1628');
       }
+
+      // Set bottom bar color for fullscreen mode
+      if (tg.setBottomBarColor) {
+        tg.setBottomBarColor('#0a1628');
+      }
+
+      // Set viewport height for mobile
+      const setVh = () => {
+        const vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+      };
+      setVh();
+      window.addEventListener('resize', setVh);
     }
+  }, [applyBackgroundColor]);
+
+  // Apply background immediately on mount
+  useEffect(() => {
+    applyBackgroundColor();
+  }, [applyBackgroundColor]);
+
+  useEffect(() => {
+    initTelegramApp();
+
+    // Handle visibility change (when app is minimized/restored)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Re-apply background immediately to prevent blue flash
+        applyBackgroundColor();
+        // Re-initialize when app becomes visible
+        initTelegramApp();
+        forceRerender();
+      }
+    };
+
+    // Handle Telegram WebApp viewport changes
+    const handleViewportChanged = () => {
+      applyBackgroundColor();
+      initTelegramApp();
+      forceRerender();
+    };
+
+    // Handle Telegram WebApp activated event (critical for minimize/restore)
+    const handleActivated = () => {
+      applyBackgroundColor();
+      initTelegramApp();
+      forceRerender();
+    };
+
+    // Handle page show (back/forward navigation, restore from bfcache)
+    const handlePageShow = (event: PageTransitionEvent) => {
+      applyBackgroundColor();
+      if (event.persisted) {
+        initTelegramApp();
+        forceRerender();
+      }
+    };
+
+    // Handle focus
+    const handleFocus = () => {
+      applyBackgroundColor();
+      initTelegramApp();
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('focus', handleFocus);
+
+    // Telegram WebApp events
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.onEvent('viewportChanged', handleViewportChanged);
+      window.Telegram.WebApp.onEvent('activated', handleActivated);
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('focus', handleFocus);
+      if (window.Telegram?.WebApp) {
+        window.Telegram.WebApp.offEvent('viewportChanged', handleViewportChanged);
+        window.Telegram.WebApp.offEvent('activated', handleActivated);
+      }
+    };
+  }, [initTelegramApp, forceRerender, applyBackgroundColor]);
+
+  // Handle loading complete
+  const handleLoadingComplete = useCallback(() => {
+    setIsLoading(false);
+    // Mark that initial load is done for this session
+    sessionStorage.setItem(INITIAL_LOAD_KEY, 'true');
   }, []);
 
-  return (
-    <>
-      {/* Loading Screen */}
-      {isLoading && (
-        <LoadingScreen
-          onComplete={() => setIsLoading(false)}
-          duration={2500}
-        />
-      )}
+  // Show only LoadingScreen until complete (only on first load)
+  if (isLoading && isFirstLoad.current) {
+    return (
+      <LoadingScreen
+        duration={2500}
+        onComplete={handleLoadingComplete}
+      />
+    );
+  }
 
-      {/* Main App */}
-    <TonConnectUIProvider manifestUrl={manifestUrl}>
-      <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Leaderboard />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/prizes" element={<Prizes />} />
-          </Routes>
-        </Layout>
-      </Router>
-    </TonConnectUIProvider>
-    </>
+  return (
+    <LanguageProvider>
+      <TonConnectUIProvider manifestUrl={manifestUrl}>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Leaderboard />} />
+              <Route path="/tasks" element={<Tasks />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/prizes" element={<Prizes />} />
+            </Routes>
+          </Layout>
+        </Router>
+      </TonConnectUIProvider>
+    </LanguageProvider>
   );
 }
 

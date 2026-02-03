@@ -6,10 +6,18 @@ class RedisClient {
   private client: Redis;
 
   constructor() {
+    // SECURITY: Enable TLS in production for encrypted connections
+    const tlsOptions = config.isProd ? {
+      tls: {
+        rejectUnauthorized: true // Verify server certificate
+      }
+    } : {};
+
     this.client = new Redis(config.redis.url, {
       maxRetriesPerRequest: 3,
       enableReadyCheck: true,
       lazyConnect: true,
+      ...tlsOptions
     });
 
     this.client.on('connect', () => {
@@ -66,6 +74,38 @@ class RedisClient {
   async getUserRank(userId: string): Promise<number | null> {
     const rank = await this.client.zrevrank('leaderboard', userId);
     return rank !== null ? rank + 1 : null; // Convert to 1-indexed
+  }
+
+  /**
+   * Get ranks for multiple users in a single pipeline call
+   * Returns Map of userId -> rank (1-indexed, or null if not found)
+   */
+  async getUserRanksBatch(userIds: string[]): Promise<Map<string, number | null>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+
+    const pipeline = this.client.pipeline();
+
+    for (const userId of userIds) {
+      pipeline.zrevrank('leaderboard', userId);
+    }
+
+    const results = await pipeline.exec();
+    const ranks = new Map<string, number | null>();
+
+    if (results) {
+      for (let i = 0; i < userIds.length; i++) {
+        const [err, rank] = results[i];
+        if (err) {
+          ranks.set(userIds[i], null);
+        } else {
+          ranks.set(userIds[i], rank !== null ? (rank as number) + 1 : null);
+        }
+      }
+    }
+
+    return ranks;
   }
 
   async getUserScore(userId: string): Promise<number | null> {

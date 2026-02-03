@@ -3,19 +3,53 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    background-color: #0a1628 !important;
+  }
+
   body {
     @apply bg-[#0a1628] text-white font-sans;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-color: #0a1628 !important;
   }
 
   html,
   body,
   #root {
     height: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-height: calc(var(--vh, 1vh) * 100);
     margin: 0;
     padding: 0;
     overflow-x: hidden;
+    background-color: #0a1628 !important;
+    /* Support for Telegram fullscreen mode */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Telegram WebApp fullscreen support */
+  .min-h-screen {
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
+    min-height: calc(var(--vh, 1vh) * 100) !important;
+  }
+
+  /* Prevent flash of white/gray during transitions */
+  html::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #0a1628;
+    z-index: -1;
+    pointer-events: none;
   }
 }
 
@@ -147,4 +181,100 @@
 ::selection {
   background: rgba(34, 211, 238, 0.3);
   color: white;
+}
+
+/* Smooth page transitions */
+.page-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms ease-out, transform 300ms ease-out;
+}
+
+/* List item animations with stagger effect */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Staggered list items - use with inline style for delay */
+.stagger-item {
+  opacity: 0;
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+/* Smooth content transitions */
+.content-transition {
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Toast animations */
+@keyframes toastEnter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes toastExit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+}
+
+.toast-enter {
+  animation: toastEnter 0.3s ease-out forwards;
+}
+
+.toast-exit {
+  animation: toastExit 0.2s ease-in forwards;
+}
+
+/* Optimize animations for performance */
+.will-change-transform {
+  will-change: transform;
+}
+
+.will-change-opacity {
+  will-change: opacity;
+}
+
+/* GPU acceleration for smooth scrolling */
+.smooth-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }

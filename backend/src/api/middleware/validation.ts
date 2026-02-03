@@ -92,11 +92,12 @@ export const schemas = {
 
   /**
    * Search query schema
-   * Query: query (string, 1-100 chars), limit (optional, default 10)
+   * Query: query (string, 1-50 chars), limit (optional, default 10)
+   * SECURITY: Limited to 50 chars to prevent ReDoS attacks
    */
   search: z.object({
     query: z.object({
-      query: z.string().min(1).max(100),
+      query: z.string().min(1).max(50),
       limit: z.coerce.number().int().min(1).max(50).default(10)
     })
   }),

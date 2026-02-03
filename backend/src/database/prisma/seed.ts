@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { CollectionSyncService } from '../../services/metadata/CollectionSyncService.js';
 
 const prisma = new PrismaClient();
 
@@ -113,6 +114,32 @@ async function main() {
       });
       console.log(`  + ${user.username || 'user'}`);
     }
+  }
+
+  // Sync NFT collections from metadata.json
+  console.log('\n--- Syncing NFT Collections ---');
+  try {
+    const collectionSync = new CollectionSyncService(prisma);
+    const syncResult = await collectionSync.syncCollections();
+
+    console.log(`Collections synced:`);
+    console.log(`  + Created: ${syncResult.created}`);
+    console.log(`  + Updated: ${syncResult.updated}`);
+    console.log(`  + Skipped: ${syncResult.skipped}`);
+    console.log(`  + Total: ${syncResult.total}`);
+
+    if (syncResult.errors.length > 0) {
+      console.log(`  ! Errors: ${syncResult.errors.length}`);
+    }
+
+    // Show metadata stats
+    const stats = collectionSync.getMetadataStats();
+    console.log(`\nMetadata stats:`);
+    console.log(`  Collections: ${stats.totalCollections}`);
+    console.log(`  Brands: ${stats.totalBrands}`);
+    console.log(`  By tier:`, stats.byTier);
+  } catch (error) {
+    console.warn('Collection sync skipped (metadata.json not found or error):', error);
   }
 }
 
