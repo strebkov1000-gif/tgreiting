@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Prize from '../components/icons/Prize';
 import { DiamondIcon, TargetIcon, StickerIcon, MedalIcon } from '../components/icons/IceIcons';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useNetworkError } from '../contexts/NetworkErrorContext';
 
 const GiftIcon = ({ className = '' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -43,6 +44,7 @@ const SpinnerIcon = ({ className = '' }: { className?: string }) => (
 
 export default function Prizes() {
   const { t } = useLanguage();
+  const { triggerNetworkError } = useNetworkError();
   const [conditions, setConditions] = useState<Condition[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -61,6 +63,12 @@ export default function Prizes() {
         const response = await fetch(`${API_URL}/tasks`, {
           headers: { 'x-telegram-init-data': getInitData() }
         });
+
+        // Check for auth errors
+        if (response.status === 401 || response.status === 403) {
+          triggerNetworkError();
+          return;
+        }
 
         if (response.ok) {
           const data = await response.json();
@@ -141,6 +149,12 @@ export default function Prizes() {
         }
       });
 
+      // Check for auth errors
+      if (response.status === 401 || response.status === 403) {
+        triggerNetworkError();
+        return;
+      }
+
       const data = await response.json();
 
       if (data.verified || data.alreadyCompleted) {
@@ -211,39 +225,45 @@ export default function Prizes() {
               {conditions.map((condition) => (
                 <div
                   key={condition.id}
-                  className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                  className={`p-3 rounded-xl border transition-all ${
                     condition.completed
                       ? 'bg-green-500/10 border-green-500/30'
                       : 'bg-black/20 border-yellow-800/30'
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    condition.completed
-                      ? 'bg-green-500/20 border border-green-500/50'
-                      : 'bg-yellow-900/30 border border-yellow-700/30'
-                  }`}>
-                    {condition.completed ? (
-                      <CheckIcon className="w-4 h-4 text-green-400" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-yellow-600/50" />
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      condition.completed
+                        ? 'bg-green-500/20 border border-green-500/50'
+                        : 'bg-yellow-900/30 border border-yellow-700/30'
+                    }`}>
+                      {condition.completed ? (
+                        <CheckIcon className="w-4 h-4 text-green-400" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-yellow-600/50" />
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className={`font-semibold text-sm ${
+                        condition.completed ? 'text-green-300' : 'text-yellow-200'
+                      }`}>
+                        {condition.title}
+                      </div>
+                      <div className={`text-xs ${
+                        condition.completed ? 'text-green-600' : 'text-yellow-600/70'
+                      }`}>
+                        {condition.description}
+                      </div>
+                    </div>
+
+                    {condition.completed && (
+                      <span className="text-xs text-green-500 font-semibold flex-shrink-0">{t.prizes.done}</span>
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className={`font-semibold text-sm ${
-                      condition.completed ? 'text-green-300' : 'text-yellow-200'
-                    }`}>
-                      {condition.title}
-                    </div>
-                    <div className={`text-xs ${
-                      condition.completed ? 'text-green-600' : 'text-yellow-600/70'
-                    }`}>
-                      {condition.description}
-                    </div>
-                  </div>
-
                   {condition.action && !condition.completed && (
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mt-3 ml-11">
                       <button
                         onClick={() => handleSubscribe(condition)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-xs font-semibold hover:bg-yellow-500/30 transition-all"
@@ -254,19 +274,18 @@ export default function Prizes() {
                       <button
                         onClick={() => handleVerify(condition)}
                         disabled={condition.checking}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/20 border border-green-500/40 text-green-300 text-xs font-semibold hover:bg-green-500/30 transition-all disabled:opacity-50"
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/20 border border-green-500/40 text-green-300 text-xs font-semibold hover:bg-green-500/30 transition-all disabled:opacity-50 min-w-[70px]"
                       >
                         {condition.checking ? (
-                          <SpinnerIcon className="w-3.5 h-3.5" />
+                          <>
+                            <SpinnerIcon className="w-3 h-3" />
+                            <span className="opacity-70">{t.tasks.check}</span>
+                          </>
                         ) : (
                           t.tasks.check
                         )}
                       </button>
                     </div>
-                  )}
-
-                  {condition.completed && (
-                    <span className="text-xs text-green-500 font-semibold">{t.prizes.done}</span>
                   )}
                 </div>
               ))}

@@ -86,7 +86,8 @@ export class WalletService {
           nftsFound: 0,
           nftsAdded: 0,
           nftsRemoved: 0,
-          pointsAwarded: 0
+          pointsAwarded: 0,
+          pointsDeducted: 0
         };
       }
 
@@ -96,6 +97,90 @@ export class WalletService {
       };
     } catch (error) {
       logger.error('Failed to connect wallet:', {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Simple wallet connection without TON proof
+   * Used when TON Connect UI already verified the wallet ownership
+   */
+  async connectWalletSimple(userId: string, walletAddress: string): Promise<{
+    walletAddress: string;
+    nftScanResult: any;
+  }> {
+    try {
+      // Normalize wallet address (basic validation)
+      if (!walletAddress || walletAddress.length < 10) {
+        throw new Error('Invalid wallet address');
+      }
+
+      // Use transaction with row locking to prevent race conditions
+      await this.prisma.$transaction(async (tx) => {
+        // Check if wallet is already connected to another user
+        const existingUsers = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM "User"
+          WHERE "walletAddress" = ${walletAddress}
+          FOR UPDATE
+        `;
+
+        if (existingUsers.length > 0 && existingUsers[0].id !== userId) {
+          throw new Error('Wallet is already connected to another account');
+        }
+
+        // Lock the current user's row
+        await tx.$queryRaw`
+          SELECT id FROM "User"
+          WHERE id = ${userId}
+          FOR UPDATE
+        `;
+
+        // Update user's wallet address
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            walletAddress,
+            lastActivity: new Date()
+          }
+        });
+      }, {
+        isolationLevel: 'Serializable',
+        timeout: 10000
+      });
+
+      logger.info('Wallet connected (simple)', {
+        userId,
+        walletAddress
+      });
+
+      // Trigger NFT scan
+      let nftScanResult;
+      try {
+        nftScanResult = await this.nftScannerService.updateUserNfts(userId, walletAddress);
+      } catch (scanError) {
+        logger.error('NFT scan failed after wallet connection:', {
+          userId,
+          walletAddress,
+          error: scanError instanceof Error ? scanError.message : 'Unknown error'
+        });
+        nftScanResult = {
+          nftsFound: 0,
+          nftsAdded: 0,
+          nftsRemoved: 0,
+          pointsAwarded: 0,
+          pointsDeducted: 0
+        };
+      }
+
+      return {
+        walletAddress,
+        nftScanResult
+      };
+    } catch (error) {
+      logger.error('Failed to connect wallet (simple):', {
         userId,
         error: error instanceof Error ? error.message : 'Unknown error'
       });

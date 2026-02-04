@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useNetworkError } from '../contexts/NetworkErrorContext';
+import { useWalletScanStore } from '../store/walletScanStore';
 
 interface MountainUser {
   rank: number;
@@ -70,7 +72,7 @@ const QuestionIcon = ({ className = '' }: { className?: string }) => (
 // Ice Crown for 1st place
 const IceCrown = () => (
   <div className="relative">
-    <svg className="w-10 h-10 drop-shadow-[0_0_15px_rgba(147,197,253,0.8)]" viewBox="0 0 48 48" fill="none">
+    <svg className="w-10 h-10 sm:w-12 sm:h-12 drop-shadow-[0_0_15px_rgba(147,197,253,0.8)]" viewBox="0 0 48 48" fill="none">
       <defs>
         <linearGradient id="crownGradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#E0F2FE" />
@@ -97,9 +99,7 @@ const IceCrown = () => (
       <circle cx="34" cy="18" r="2" fill="#F0F9FF"/>
       <path d="M10 38H38V42C38 43.1 37.1 44 36 44H12C10.9 44 10 43.1 10 42V38Z" fill="url(#crownGradient)" stroke="#BAE6FD" strokeWidth="1"/>
     </svg>
-    <div className="absolute inset-0 animate-pulse">
-      <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full" />
-    </div>
+    <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full opacity-80" />
   </div>
 );
 
@@ -170,61 +170,64 @@ const MetersInfoPopup = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
         onClick={onClose}
       />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[92%] max-w-md max-h-[85vh] overflow-hidden">
-        <div className="relative overflow-hidden rounded-2xl">
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0c1c2e] via-[#0f2744] to-[#0c1c2e]" />
-          <div className="absolute inset-0 border border-cyan-500/30 rounded-2xl" />
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-20 bg-cyan-500/20 rounded-full blur-3xl" />
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[85%] max-w-[320px] max-h-[60vh] flex flex-col rounded-2xl overflow-hidden">
+        {/* Background layers */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0c1c2e] via-[#0f2744] to-[#0c1c2e]" />
+        <div className="absolute inset-0 border border-cyan-500/30 rounded-2xl pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-20 bg-cyan-500/20 rounded-full blur-3xl" />
 
-          <div className="relative p-4">
-            <button
-              onClick={onClose}
-              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-cyan-900/50 border border-cyan-700/50 flex items-center justify-center text-cyan-500 hover:text-cyan-300 transition-colors z-10"
-            >
-              ✕
-            </button>
+        {/* Fixed Header */}
+        <div className="relative flex-shrink-0 p-4 pb-0">
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-cyan-900/80 border border-cyan-700/50 flex items-center justify-center text-cyan-500 hover:text-cyan-300 transition-colors z-20"
+          >
+            ✕
+          </button>
 
-            <div className="text-center mb-4">
-              <span className="text-lg font-bold text-cyan-300">{t.leaderboard?.metersInfo || 'Meters Info'}</span>
-            </div>
+          <div className="text-center mb-4 pr-8">
+            <span className="text-lg font-bold text-cyan-300">{t.leaderboard?.metersInfo || 'Meters Info'}</span>
+          </div>
 
-            {/* Info message */}
-            <div className="bg-cyan-950/50 rounded-xl p-3 border border-cyan-800/30 mb-4">
-              <p className="text-xs text-cyan-400 leading-relaxed">
-                {t.leaderboard?.metersDescription || 'Учитываются ончейн стикеры из коллекций Sticker Pack и Goodis. Чем меньше supply коллекции — тем больше метров даёт стикер.'}
-              </p>
-            </div>
+          {/* Info message */}
+          <div className="bg-cyan-950/50 rounded-xl p-3 border border-cyan-800/30 mb-4">
+            <p className="text-xs text-cyan-400 leading-relaxed">
+              {t.leaderboard?.metersDescription || 'Учитываются ончейн стикеры из коллекций Sticker Pack и Goodies. Чем меньше supply коллекции — тем больше метров даёт стикер.'}
+            </p>
+          </div>
+        </div>
 
-            {/* Table */}
-            <div className="overflow-y-auto max-h-[50vh] rounded-xl border border-cyan-800/30">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-cyan-950/90 backdrop-blur-sm">
-                  <tr>
-                    <th className="text-left p-3 text-cyan-500 font-semibold">Supply</th>
-                    <th className="text-right p-3 text-cyan-500 font-semibold">{t.leaderboard?.metersPerSticker || 'Meters'}</th>
+        {/* Scrollable Content */}
+        <div className="relative flex-1 overflow-y-auto px-4 pb-4 min-h-0">
+          {/* Table */}
+          <div className="rounded-xl border border-cyan-800/30 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-cyan-950/95 backdrop-blur-sm z-10">
+                <tr>
+                  <th className="text-left p-3 text-cyan-500 font-semibold">Supply</th>
+                  <th className="text-right p-3 text-cyan-500 font-semibold">{t.leaderboard?.metersPerSticker || 'Meters'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SUPPLY_TIERS.map((row, i) => (
+                  <tr key={i} className="border-t border-cyan-900/30 hover:bg-cyan-900/20 transition-colors">
+                    <td className="p-3 text-cyan-300 font-mono">{row.supply}</td>
+                    <td className="p-3 text-right font-bold text-white">{row.meters}m</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {SUPPLY_TIERS.map((row, i) => (
-                    <tr key={i} className="border-t border-cyan-900/30 hover:bg-cyan-900/20 transition-colors">
-                      <td className="p-3 text-cyan-300 font-mono">{row.supply}</td>
-                      <td className="p-3 text-right font-bold text-white">{row.meters}m</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-            {/* Collections info */}
-            <div className="mt-4 flex gap-2">
-              <div className="flex-1 bg-cyan-950/50 rounded-xl p-2 border border-cyan-800/30 text-center">
-                <span className="text-[10px] text-cyan-600 block">Sticker Pack</span>
-                <span className="text-xs font-bold text-cyan-300">SP</span>
-              </div>
-              <div className="flex-1 bg-cyan-950/50 rounded-xl p-2 border border-cyan-800/30 text-center">
-                <span className="text-[10px] text-cyan-600 block">Goodis</span>
-                <span className="text-xs font-bold text-cyan-300">GDS</span>
-              </div>
+          {/* Collections info */}
+          <div className="mt-4 flex gap-2">
+            <div className="flex-1 bg-cyan-950/50 rounded-xl p-2 border border-cyan-800/30 text-center">
+              <span className="text-[10px] text-cyan-600 block">Sticker Pack</span>
+              <span className="text-xs font-bold text-cyan-300">SP</span>
+            </div>
+            <div className="flex-1 bg-cyan-950/50 rounded-xl p-2 border border-cyan-800/30 text-center">
+              <span className="text-[10px] text-cyan-600 block">Goodies</span>
+              <span className="text-xs font-bold text-cyan-300">GDI</span>
             </div>
           </div>
         </div>
@@ -233,7 +236,7 @@ const MetersInfoPopup = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
   );
 };
 
-// Animated Trophy Icon
+// Trophy Icon
 const AnimatedTrophyIcon = ({ className = '' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none">
     <defs>
@@ -243,20 +246,16 @@ const AnimatedTrophyIcon = ({ className = '' }: { className?: string }) => (
         <stop offset="100%" stopColor="#D97706" />
       </linearGradient>
     </defs>
-    <path d="M12 15c-3.87 0-7-3.13-7-7V4h14v4c0 3.87-3.13 7-7 7z" fill="url(#trophyGold)" stroke="#FDE68A" strokeWidth="0.5">
-      <animate attributeName="opacity" values="1;0.8;1" dur="2s" repeatCount="indefinite"/>
-    </path>
+    <path d="M12 15c-3.87 0-7-3.13-7-7V4h14v4c0 3.87-3.13 7-7 7z" fill="url(#trophyGold)" stroke="#FDE68A" strokeWidth="0.5" />
     <path d="M5 4V3a1 1 0 011-1h12a1 1 0 011 1v1" stroke="#FDE68A" strokeWidth="1.5" strokeLinecap="round"/>
     <path d="M5 6H3a1 1 0 00-1 1v1a3 3 0 003 3" stroke="url(#trophyGold)" strokeWidth="1.5" strokeLinecap="round"/>
     <path d="M19 6h2a1 1 0 011 1v1a3 3 0 01-3 3" stroke="url(#trophyGold)" strokeWidth="1.5" strokeLinecap="round"/>
     <path d="M12 15v3M9 21h6M12 18c-1 0-2 .5-2 1.5V21h4v-1.5c0-1-1-1.5-2-1.5z" stroke="url(#trophyGold)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <circle cx="12" cy="9" r="2" fill="#FEF3C7">
-      <animate attributeName="r" values="2;2.3;2" dur="1.5s" repeatCount="indefinite"/>
-    </circle>
+    <circle cx="12" cy="9" r="2" fill="#FEF3C7" />
   </svg>
 );
 
-// Animated Diamond Icon
+// Diamond Icon
 const AnimatedDiamondIcon = ({ className = '' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none">
     <defs>
@@ -266,19 +265,15 @@ const AnimatedDiamondIcon = ({ className = '' }: { className?: string }) => (
         <stop offset="100%" stopColor="#8B5CF6" />
       </linearGradient>
     </defs>
-    <path d="M12 2L2 9l10 13 10-13L12 2z" fill="url(#diamondPurple)" stroke="#C4B5FD" strokeWidth="0.5">
-      <animate attributeName="opacity" values="1;0.7;1" dur="2.5s" repeatCount="indefinite"/>
-    </path>
+    <path d="M12 2L2 9l10 13 10-13L12 2z" fill="url(#diamondPurple)" stroke="#C4B5FD" strokeWidth="0.5" />
     <path d="M2 9h20M7 2l-1 7M17 2l1 7M12 9v13" stroke="#E9D5FF" strokeWidth="0.5" strokeOpacity="0.6"/>
-    <path d="M12 5L8 9h8l-4-4z" fill="#EDE9FE" fillOpacity="0.4">
-      <animate attributeName="fillOpacity" values="0.4;0.7;0.4" dur="2s" repeatCount="indefinite"/>
-    </path>
+    <path d="M12 5L8 9h8l-4-4z" fill="#EDE9FE" fillOpacity="0.5" />
   </svg>
 );
 
-// Animated Snowflake Icon
+// Snowflake Icon
 const AnimatedSnowflakeIcon = ({ className = '' }: { className?: string }) => (
-  <svg className={`${className} animate-spin`} style={{ animationDuration: '8s' }} viewBox="0 0 24 24" fill="none">
+  <svg className={className} viewBox="0 0 24 24" fill="none">
     <defs>
       <linearGradient id="snowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stopColor="#E0F2FE" />
@@ -287,9 +282,7 @@ const AnimatedSnowflakeIcon = ({ className = '' }: { className?: string }) => (
       </linearGradient>
     </defs>
     <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93L4.93 19.07" stroke="url(#snowGradient)" strokeWidth="2" strokeLinecap="round"/>
-    <circle cx="12" cy="12" r="3" fill="url(#snowGradient)">
-      <animate attributeName="r" values="3;3.5;3" dur="2s" repeatCount="indefinite"/>
-    </circle>
+    <circle cx="12" cy="12" r="3" fill="url(#snowGradient)" />
     <circle cx="12" cy="5" r="1.5" fill="#BAE6FD"/>
     <circle cx="12" cy="19" r="1.5" fill="#BAE6FD"/>
     <circle cx="5" cy="12" r="1.5" fill="#BAE6FD"/>
@@ -349,7 +342,7 @@ const CountdownPopup = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
                   <span className="text-5xl font-black text-cyan-300">{days}</span>
                   <span className="text-xs text-cyan-600 uppercase tracking-wider">{t.leaderboard.days}</span>
                 </div>
-                <div className="absolute -inset-1 rounded-2xl bg-cyan-400/20 blur-md -z-10 animate-pulse" />
+                <div className="absolute -inset-1 rounded-2xl bg-cyan-400/20 blur-md -z-10" />
               </div>
             </div>
 
@@ -379,6 +372,7 @@ const CountdownPopup = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
 
 export default function Leaderboard() {
   const { t } = useLanguage();
+  const { triggerNetworkError } = useNetworkError();
   const [activeTab, setActiveTab] = useState<LeaderboardTab>('meters');
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -389,6 +383,21 @@ export default function Leaderboard() {
   const [showMetersInfo, setShowMetersInfo] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 20;
+
+  // Watch for wallet scan completion to refresh leaderboard
+  const { progress: scanProgress } = useWalletScanStore();
+  const prevScanStepRef = useRef(scanProgress.currentStep);
+
+  useEffect(() => {
+    // Refresh leaderboard when wallet scan completes
+    if (prevScanStepRef.current !== 'complete' && scanProgress.currentStep === 'complete') {
+      // Small delay to ensure backend has updated
+      setTimeout(() => {
+        fetchLeaderboard();
+      }, 500);
+    }
+    prevScanStepRef.current = scanProgress.currentStep;
+  }, [scanProgress.currentStep]);
 
   useEffect(() => {
     if (activeTab === 'ice') {
@@ -419,6 +428,12 @@ export default function Leaderboard() {
           'Authorization': initData ? `tma ${initData}` : '',
         },
       });
+
+      // Check for auth errors
+      if (response.status === 401 || response.status === 403) {
+        triggerNetworkError();
+        return;
+      }
 
       if (response.status === 429) {
         if (retry < MAX_RETRIES) {
@@ -469,7 +484,7 @@ export default function Leaderboard() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#0a1929] to-[#0d2137]">
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
-            <IceCrystal className="w-12 h-12 text-cyan-400 animate-pulse" />
+            <IceCrystal className="w-12 h-12 text-cyan-400" />
             <div className="absolute inset-0 w-12 h-12 border-2 border-cyan-500/30 rounded-full animate-ping" />
           </div>
           <p className="text-cyan-400/60 text-sm">{t.loading}</p>
@@ -534,10 +549,10 @@ export default function Leaderboard() {
         {activeTab === 'ice' && (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="relative">
-              <div className="text-8xl mb-6 animate-bounce">
+              <div className="text-8xl mb-6">
                 <span role="img" aria-label="cooking">🍳</span>
               </div>
-              <div className="absolute -inset-4 bg-cyan-500/20 rounded-full blur-3xl animate-pulse" />
+              <div className="absolute -inset-4 bg-cyan-500/20 rounded-full blur-3xl" />
             </div>
             <h2 className="text-2xl font-black text-cyan-300 mb-2">{t.leaderboard.cooking}</h2>
             <p className="text-cyan-600 text-sm">{t.leaderboard.comingSoon}</p>
@@ -549,7 +564,7 @@ export default function Leaderboard() {
           <div className="relative overflow-hidden rounded-3xl">
             <div className="absolute inset-0 bg-gradient-to-b from-[#0c1c2e] via-[#0f2744] to-[#0c1c2e]" />
             <div className="absolute inset-0 overflow-hidden opacity-60">
-              <div className="absolute -top-20 left-0 w-full h-40 bg-gradient-to-r from-cyan-500/20 via-blue-400/30 to-cyan-500/20 blur-3xl animate-pulse" />
+              <div className="absolute -top-20 left-0 w-full h-40 bg-gradient-to-r from-cyan-500/20 via-blue-400/30 to-cyan-500/20 blur-3xl" />
               <div className="absolute top-20 -left-20 w-60 h-60 bg-cyan-400/20 rounded-full blur-[80px]" />
               <div className="absolute top-10 -right-20 w-60 h-60 bg-blue-500/15 rounded-full blur-[80px]" />
             </div>
@@ -606,9 +621,9 @@ export default function Leaderboard() {
                   <path d="M200 55 L270 180" stroke="white" strokeOpacity="0.2" strokeWidth="1" />
                   <path d="M165 110 L90 240" stroke="white" strokeOpacity="0.15" strokeWidth="1" />
                   <path d="M235 110 L310 240" stroke="white" strokeOpacity="0.15" strokeWidth="1" />
-                  <circle cx="200" cy="35" r="2" fill="white" opacity="0.9"><animate attributeName="opacity" values="0.9;0.3;0.9" dur="2s" repeatCount="indefinite" /></circle>
-                  <circle cx="172" cy="70" r="1.5" fill="white" opacity="0.7"><animate attributeName="opacity" values="0.7;0.2;0.7" dur="2.5s" repeatCount="indefinite" /></circle>
-                  <circle cx="228" cy="70" r="1.5" fill="white" opacity="0.7"><animate attributeName="opacity" values="0.7;0.2;0.7" dur="3s" repeatCount="indefinite" /></circle>
+                  <circle cx="200" cy="35" r="2" fill="white" opacity="0.9" />
+                  <circle cx="172" cy="70" r="1.5" fill="white" opacity="0.7" />
+                  <circle cx="228" cy="70" r="1.5" fill="white" opacity="0.7" />
                 </svg>
 
                 {/* 1st place */}
@@ -617,8 +632,8 @@ export default function Leaderboard() {
                     <div className="flex flex-col items-center">
                       <IceCrown />
                       <div className="relative -mt-1">
-                        <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-cyan-400 via-blue-400 to-cyan-400 animate-pulse opacity-60 blur-sm" />
-                        <div className="relative w-14 h-14 rounded-full overflow-hidden ring-[3px] ring-cyan-400">
+                        <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-cyan-400 via-blue-400 to-cyan-400 opacity-60 blur-sm" />
+                        <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden ring-[3px] ring-cyan-400">
                           {podium[0].avatar_url ? (
                             <img src={podium[0].avatar_url} alt="" className="w-full h-full object-cover" />
                           ) : (
@@ -628,20 +643,20 @@ export default function Leaderboard() {
                           )}
                         </div>
                       </div>
-                      <div className="text-[11px] font-semibold text-cyan-100 mt-1 max-w-[70px] truncate text-center">{getDisplayName(podium[0])}</div>
-                      <div className="text-[10px] font-black text-cyan-300">{podium[0].value.toLocaleString()}</div>
+                      <div className="text-xs sm:text-sm font-bold text-cyan-100 mt-1.5 max-w-[100px] sm:max-w-[120px] truncate text-center drop-shadow-lg">{getDisplayName(podium[0])}</div>
+                      <div className="text-[11px] sm:text-xs font-black text-cyan-300">{podium[0].value.toLocaleString()}</div>
                     </div>
                   </div>
                 )}
 
                 {/* 2nd place */}
                 {podium[1] && (
-                  <div className="absolute" style={{ left: '20%', top: '115px' }}>
+                  <div className="absolute" style={{ left: '18%', top: '115px' }}>
                     <div className="flex flex-col items-center">
                       <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-slate-200 to-slate-400 flex items-center justify-center text-slate-700 font-black text-sm shadow-lg mb-1">2</div>
                       <div className="relative">
                         <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-slate-300 to-slate-400 opacity-40 blur-sm" />
-                        <div className="relative w-12 h-12 rounded-full overflow-hidden ring-2 ring-slate-300">
+                        <div className="relative w-12 h-12 sm:w-13 sm:h-13 rounded-full overflow-hidden ring-2 ring-slate-300">
                           {podium[1].avatar_url ? (
                             <img src={podium[1].avatar_url} alt="" className="w-full h-full object-cover" />
                           ) : (
@@ -651,20 +666,20 @@ export default function Leaderboard() {
                           )}
                         </div>
                       </div>
-                      <div className="text-[10px] font-semibold text-cyan-200/80 mt-1 max-w-[60px] truncate text-center">{getDisplayName(podium[1])}</div>
-                      <div className="text-[10px] font-black text-slate-300">{podium[1].value.toLocaleString()}</div>
+                      <div className="text-[11px] sm:text-xs font-semibold text-cyan-200 mt-1 max-w-[80px] sm:max-w-[90px] truncate text-center">{getDisplayName(podium[1])}</div>
+                      <div className="text-[10px] sm:text-[11px] font-black text-slate-300">{podium[1].value.toLocaleString()}</div>
                     </div>
                   </div>
                 )}
 
                 {/* 3rd place */}
                 {podium[2] && (
-                  <div className="absolute" style={{ right: '20%', top: '115px' }}>
+                  <div className="absolute" style={{ right: '18%', top: '115px' }}>
                     <div className="flex flex-col items-center">
                       <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-700 flex items-center justify-center text-white font-black text-sm shadow-lg mb-1">3</div>
                       <div className="relative">
                         <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-cyan-400 to-cyan-500 opacity-40 blur-sm" />
-                        <div className="relative w-12 h-12 rounded-full overflow-hidden ring-2 ring-cyan-500">
+                        <div className="relative w-12 h-12 sm:w-13 sm:h-13 rounded-full overflow-hidden ring-2 ring-cyan-500">
                           {podium[2].avatar_url ? (
                             <img src={podium[2].avatar_url} alt="" className="w-full h-full object-cover" />
                           ) : (
@@ -674,8 +689,8 @@ export default function Leaderboard() {
                           )}
                         </div>
                       </div>
-                      <div className="text-[10px] font-semibold text-cyan-200/80 mt-1 max-w-[60px] truncate text-center">{getDisplayName(podium[2])}</div>
-                      <div className="text-[10px] font-black text-cyan-400">{podium[2].value.toLocaleString()}</div>
+                      <div className="text-[11px] sm:text-xs font-semibold text-cyan-200 mt-1 max-w-[80px] sm:max-w-[90px] truncate text-center">{getDisplayName(podium[2])}</div>
+                      <div className="text-[10px] sm:text-[11px] font-black text-cyan-400">{podium[2].value.toLocaleString()}</div>
                     </div>
                   </div>
                 )}
@@ -759,15 +774,14 @@ export default function Leaderboard() {
                 <IceCrystal className="w-4 h-4 text-cyan-500" />
                 <h2 className="text-sm font-bold text-cyan-400 tracking-wide">{t.leaderboard.rankings}</h2>
               </div>
-              <span className="text-xs text-cyan-700">{list.length} {t.leaderboard.participants}</span>
+              <span className="text-xs text-cyan-700">{data.pagination.total} {t.leaderboard.participants}</span>
             </div>
 
             <div className="space-y-2">
-              {paginatedList.map((user, index) => (
+              {paginatedList.map((user) => (
                 <div
                   key={user.user_id}
-                  style={{ animationDelay: `${index * 30}ms` }}
-                  className={`group relative flex items-center justify-between p-3 rounded-xl transition-all duration-300 stagger-item ${
+                  className={`group relative flex items-center justify-between p-3 rounded-xl transition-colors duration-200 ${
                     user.is_me
                       ? 'bg-gradient-to-r from-cyan-500/15 to-blue-500/15 border border-cyan-500/30 shadow-[0_0_20px_rgba(34,211,238,0.15)]'
                       : 'bg-[#0c1c2e]/60 border border-cyan-900/30 hover:border-cyan-700/40'
@@ -867,7 +881,7 @@ export default function Leaderboard() {
         {/* Empty state */}
         {activeTab === 'meters' && podium.length === 0 && list.length === 0 && (
           <div className="text-center py-20">
-            <IceCrystal className="w-20 h-20 text-cyan-600 mx-auto mb-6 animate-pulse" />
+            <IceCrystal className="w-20 h-20 text-cyan-600 mx-auto mb-6" />
             <p className="text-cyan-400 text-lg font-semibold">{t.leaderboard.noRankings}</p>
             <p className="text-cyan-700 text-sm mt-2">{t.leaderboard.beFirst}</p>
           </div>

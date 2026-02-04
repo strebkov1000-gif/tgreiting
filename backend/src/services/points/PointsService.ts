@@ -11,7 +11,7 @@ export interface PointsCalculationConfig {
 export interface PointsTransactionInput {
   userId: string;
   points: number;
-  activityType: 'nft_detected' | 'referral' | 'daily_checkin' | 'achievement' | 'chat_boost' | 'social_task' | 'hold_bonus';
+  activityType: 'nft_detected' | 'nft_sold' | 'referral' | 'daily_checkin' | 'achievement' | 'chat_boost' | 'social_task' | 'hold_bonus';
   metadata?: Record<string, any>;
   description?: string;
 }
@@ -97,6 +97,79 @@ export class PointsService {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       throw new Error('Failed to award points');
+    }
+  }
+
+  /**
+   * Deduct points from user (e.g., when NFT is sold)
+   * Creates negative point transaction and decrements user's total
+   */
+  async deductPoints(transaction: PointsTransactionInput): Promise<PointTransaction> {
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        // Get current user points to prevent negative balance
+        const user = await tx.user.findUnique({
+          where: { id: transaction.userId },
+          select: { totalPoints: true }
+        });
+
+        if (!user) {
+          throw new Error('User not found');
+        }
+
+        // Calculate actual deduction (don't go below 0)
+        const actualDeduction = Math.min(transaction.points, user.totalPoints);
+
+        if (actualDeduction <= 0) {
+          logger.info('No points to deduct (user has 0 points)', {
+            userId: transaction.userId,
+            requestedDeduction: transaction.points
+          });
+          // Still create a record with 0 for tracking
+        }
+
+        // Create negative point transaction record
+        const pointTransaction = await tx.pointTransaction.create({
+          data: {
+            userId: transaction.userId,
+            points: -actualDeduction, // Negative value
+            activityType: transaction.activityType,
+            metadata: transaction.metadata || {},
+            description: transaction.description
+          }
+        });
+
+        // Update user's total points (decrement)
+        if (actualDeduction > 0) {
+          await tx.user.update({
+            where: { id: transaction.userId },
+            data: {
+              totalPoints: {
+                decrement: actualDeduction
+              },
+              lastActivity: new Date()
+            }
+          });
+        }
+
+        logger.info('Points deducted', {
+          userId: transaction.userId,
+          points: actualDeduction,
+          activityType: transaction.activityType,
+          transactionId: pointTransaction.id
+        });
+
+        return pointTransaction;
+      });
+
+      return result;
+    } catch (error) {
+      logger.error('Failed to deduct points', {
+        userId: transaction.userId,
+        points: transaction.points,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw new Error('Failed to deduct points');
     }
   }
 

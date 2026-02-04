@@ -1,6 +1,7 @@
 // @ts-nocheck
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useNetworkError } from '../contexts/NetworkErrorContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://icetop.app/api';
 
@@ -91,6 +92,7 @@ const SpinnerIcon = ({ className = '' }: { className?: string }) => (
 
 export default function Tasks() {
   const { t } = useLanguage();
+  const { triggerNetworkError } = useNetworkError();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [referralInfo, setReferralInfo] = useState<ReferralInfo | null>(null);
   const [referrals, setReferrals] = useState<Referral[]>([]);
@@ -105,7 +107,7 @@ export default function Tasks() {
 
   useEffect(() => {
     if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000);
+      const timer = setTimeout(() => setToast(null), 700);
       return () => clearTimeout(timer);
     }
   }, [toast]);
@@ -119,6 +121,12 @@ export default function Tasks() {
       const response = await fetch(`${API_URL}/tasks`, {
         headers: { 'x-telegram-init-data': getInitData() }
       });
+
+      // Check for auth errors
+      if (response.status === 401 || response.status === 403) {
+        triggerNetworkError();
+        return;
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -137,6 +145,12 @@ export default function Tasks() {
       const response = await fetch(`${API_URL}/tasks/referrals`, {
         headers: { 'x-telegram-init-data': getInitData() }
       });
+
+      // Check for auth errors
+      if (response.status === 401 || response.status === 403) {
+        triggerNetworkError();
+        return;
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -175,6 +189,12 @@ export default function Tasks() {
         }
       });
 
+      // Check for auth errors
+      if (response.status === 401 || response.status === 403) {
+        triggerNetworkError();
+        return;
+      }
+
       const data = await response.json();
 
       if (response.ok && data.verified) {
@@ -196,43 +216,75 @@ export default function Tasks() {
     }
   };
 
-  const getReferralLink = () => {
+  const getReferralLink = useCallback(() => {
     if (!referralInfo?.code) return '';
     const botUsername = import.meta.env.VITE_BOT_USERNAME || 'IceTopbot';
     return `https://t.me/${botUsername}?start=${referralInfo.code}`;
-  };
+  }, [referralInfo?.code]);
 
-  const handleCopyLink = async () => {
+  const handleCopyLink = useCallback(async () => {
     const link = getReferralLink();
-    if (!link) return;
+    if (!link) {
+      console.warn('No referral link available');
+      return;
+    }
 
     try {
-      await navigator.clipboard.writeText(link);
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        // Fallback for older browsers/restricted contexts
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
       setToast({ message: t.toasts.linkCopied, type: 'success' });
-    } catch {
+    } catch (err) {
+      console.error('Copy failed:', err);
+      // Last resort fallback
       const textArea = document.createElement('textarea');
       textArea.value = link;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
       document.body.appendChild(textArea);
+      textArea.focus();
       textArea.select();
-      document.execCommand('copy');
+      try {
+        document.execCommand('copy');
+        setToast({ message: t.toasts.linkCopied, type: 'success' });
+      } catch {
+        setToast({ message: 'Не удалось скопировать', type: 'error' });
+      }
       document.body.removeChild(textArea);
-      setToast({ message: t.toasts.linkCopied, type: 'success' });
     }
-  };
+  }, [getReferralLink, t.toasts.linkCopied]);
 
-  const handleShare = () => {
+  const handleShare = useCallback(() => {
     const link = getReferralLink();
-    if (!link) return;
+    if (!link) {
+      console.warn('No referral link available');
+      return;
+    }
 
+    const shareText = t.toasts?.shareText || 'Check out Ice Top!';
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText + ' 🏔️')}`;
+
+    // Get fresh reference to Telegram WebApp
     const tg = window.Telegram?.WebApp;
-    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(t.toasts.shareText + ' 🏔️')}`;
 
     if (tg?.openTelegramLink) {
       tg.openTelegramLink(shareUrl);
     } else {
       window.open(shareUrl, '_blank');
     }
-  };
+  }, [getReferralLink, t.toasts?.shareText]);
 
   const handleShowReferrals = () => {
     if (!showReferrals) {
@@ -266,12 +318,23 @@ export default function Tasks() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0a1929] via-[#0d2137] to-[#0a1929]">
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        {/* Toast */}
+        {/* Toast - centered */}
         {toast && (
-          <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl shadow-lg font-medium toast-enter ${
-            toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+          <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] px-6 py-4 rounded-2xl shadow-2xl font-semibold toast-enter flex items-center gap-3 ${
+            toast.type === 'success'
+              ? 'bg-gradient-to-r from-emerald-500 to-green-500 text-white shadow-emerald-500/40'
+              : 'bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-red-500/40'
           }`}>
-            {toast.message}
+            {toast.type === 'success' ? (
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+            <span className="text-base">{toast.message}</span>
           </div>
         )}
 
@@ -324,11 +387,11 @@ export default function Tasks() {
             </div>
 
             {/* Bonuses Info */}
-            <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-              <CheckIcon className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <div className="flex items-start gap-2 mb-3 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+              <CheckIcon className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <span className="text-xs text-emerald-200/80">{t.tasks.rewardUnlocks}</span>
-                <span className="text-xs text-emerald-400/60 block mt-0.5">{t.tasks.level3Equals}</span>
+                <p className="text-xs text-emerald-200/80 leading-relaxed">{t.tasks.rewardUnlocks}</p>
+                <p className="text-xs text-emerald-400/60 mt-1">{t.tasks.level3Equals}</p>
               </div>
             </div>
 
@@ -376,7 +439,7 @@ export default function Tasks() {
                   {referralInfo?.totalInvited || 0}
                 </span>
               </div>
-              <ChevronRightIcon className={`w-5 h-5 text-gray-500 transition-transform ${showReferrals ? 'rotate-90' : ''}`} />
+              <ChevronRightIcon className={`w-5 h-5 text-gray-500 transition-transform ${showReferrals ? '-rotate-90' : 'rotate-90'}`} />
             </button>
 
             {/* Referrals List */}

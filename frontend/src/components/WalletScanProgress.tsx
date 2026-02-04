@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
   useWalletScanStore,
-  STEP_MESSAGES,
   SCAN_STEPS,
   ScanStep
 } from '../store/walletScanStore';
+import { useLanguage } from '../i18n/LanguageContext';
 
 // Animated icon components
 const ScanningIcon = () => (
@@ -77,10 +77,10 @@ const PointsIcon = () => (
 
 // Step icons map
 const ANIMATED_STEP_ICONS: Record<string, React.ReactNode> = {
-  connecting: <WalletIcon />,
-  scanning: <NftIcon />,
-  processing: <DatabaseIcon />,
-  calculating: <PointsIcon />
+  calculating_position: <PointsIcon />,
+  counting_stickers: <NftIcon />,
+  counting_hold_days: <DatabaseIcon />,
+  checking_clubs: <WalletIcon />
 };
 
 interface WalletScanProgressProps {
@@ -94,6 +94,18 @@ interface WalletScanProgressProps {
 export default function WalletScanProgress({ isOpen, onClose }: WalletScanProgressProps) {
   const { progress, isScanning, reset } = useWalletScanStore();
   const [showResult, setShowResult] = useState(false);
+  const { t } = useLanguage();
+
+  // Step messages based on current language
+  const stepMessages: Record<ScanStep, string> = {
+    idle: '',
+    calculating_position: t.scan.calculatingPosition,
+    counting_stickers: t.scan.countingStickers,
+    counting_hold_days: t.scan.countingHoldDays,
+    checking_clubs: t.scan.checkingClubs,
+    complete: t.scan.done,
+    error: t.scan.errorOccurred
+  };
 
   // Auto-close after completion
   useEffect(() => {
@@ -146,6 +158,19 @@ export default function WalletScanProgress({ isOpen, onClose }: WalletScanProgre
           {/* Glow effect */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-20 bg-cyan-500/20 rounded-full blur-3xl" />
 
+          {/* Close button */}
+          <button
+            onClick={() => {
+              reset();
+              onClose();
+            }}
+            className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-cyan-900/80 border border-cyan-700/50 flex items-center justify-center text-cyan-500 hover:text-cyan-300 hover:bg-cyan-800/80 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
           <div className="relative p-6">
             {/* Header with animated icon */}
             <div className="text-center mb-6">
@@ -170,10 +195,10 @@ export default function WalletScanProgress({ isOpen, onClose }: WalletScanProgre
                 </div>
               </div>
               <h3 className="text-lg font-bold text-cyan-200">
-                {showResult ? 'Сканирование завершено!' :
-                 progress.currentStep === 'error' && progress.errorCode === 'WALLET_ALREADY_CONNECTED' ? 'Кошелёк уже используется' :
-                 progress.currentStep === 'error' ? 'Ошибка' :
-                 'Сканируем кошелёк...'}
+                {showResult ? t.scan.complete :
+                 progress.currentStep === 'error' && progress.errorCode === 'WALLET_ALREADY_CONNECTED' ? t.scan.walletAlreadyUsed :
+                 progress.currentStep === 'error' ? t.scan.error :
+                 t.scan.scanning}
               </h3>
             </div>
 
@@ -219,7 +244,7 @@ export default function WalletScanProgress({ isOpen, onClose }: WalletScanProgre
                         ? 'text-cyan-300'
                         : 'text-cyan-600'
                     }`}>
-                      {STEP_MESSAGES[step]}
+                      {stepMessages[step]}
                     </span>
 
                     {/* Loading indicator */}
@@ -245,15 +270,15 @@ export default function WalletScanProgress({ isOpen, onClose }: WalletScanProgre
                 <div className="text-3xl font-black text-emerald-400 mb-1">
                   +{progress.scanResult.pointsAwarded}
                 </div>
-                <div className="text-sm text-emerald-500">метров добавлено</div>
+                <div className="text-sm text-emerald-500">{t.scan.metersAdded}</div>
                 {progress.scanResult.nftsFound > 0 && (
                   <div className="text-xs text-cyan-600 mt-2">
-                    Найдено {progress.scanResult.nftsFound} NFT
+                    {t.scan.nftsFound.replace('{count}', String(progress.scanResult.nftsFound))}
                   </div>
                 )}
                 {progress.scanResult.rank && (
                   <div className="text-xs text-cyan-500 mt-1">
-                    Ваша позиция: #{progress.scanResult.rank}
+                    {t.scan.yourPosition.replace('{rank}', String(progress.scanResult.rank))}
                   </div>
                 )}
               </div>
@@ -283,7 +308,7 @@ export default function WalletScanProgress({ isOpen, onClose }: WalletScanProgre
                 </div>
                 {progress.errorCode === 'WALLET_ALREADY_CONNECTED' && (
                   <div className="text-xs text-amber-500/70 mb-3">
-                    Каждый кошелёк можно подключить только к одному аккаунту
+                    {t.scan.walletAlreadyUsedDesc}
                   </div>
                 )}
                 <button
@@ -293,7 +318,7 @@ export default function WalletScanProgress({ isOpen, onClose }: WalletScanProgre
                   }}
                   className="px-4 py-2 rounded-lg bg-cyan-500/20 text-cyan-300 text-sm hover:bg-cyan-500/30 transition-all"
                 >
-                  Закрыть
+                  {t.scan.close}
                 </button>
               </div>
             )}

@@ -205,18 +205,19 @@ router.put('/wallet',
       // Connect wallet (includes NFT scan)
       const result = await walletService.connectWallet(userId, proof);
 
-      // Get user's new rank and total points
+      // Get user's total points after scan
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: { totalPoints: true }
       });
 
-      const rank = await leaderboardService.getUserRank(userId);
-
-      // Update leaderboard if points changed
+      // Update leaderboard FIRST if points changed
       if (user && result.nftScanResult.pointsAwarded > 0) {
         await leaderboardService.updateUserPosition(userId, user.totalPoints);
       }
+
+      // Get rank AFTER leaderboard is updated
+      const rank = await leaderboardService.getUserRank(userId);
 
       // Check for achievements (NFT-related)
       const achievementUnlocks = await achievementChecker.checkUserAchievements(userId, rank);
@@ -250,6 +251,83 @@ router.put('/wallet',
         userId: req.user!.userId,
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined
+      });
+
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to connect wallet'
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/user/wallet
+ * Simple wallet connection (without TON proof)
+ * Used when TON Connect UI already verified wallet ownership
+ */
+router.post('/wallet',
+  authMiddleware,
+  async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.userId;
+      const { walletAddress } = req.body;
+
+      if (!walletAddress) {
+        res.status(400).json({
+          error: 'Bad Request',
+          message: 'Wallet address is required'
+        });
+        return;
+      }
+
+      // Connect wallet (includes NFT scan)
+      const result = await walletService.connectWalletSimple(userId, walletAddress);
+
+      // Get user's total points after scan
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { totalPoints: true }
+      });
+
+      // Update leaderboard FIRST if points changed
+      if (user && result.nftScanResult.pointsAwarded > 0) {
+        await leaderboardService.updateUserPosition(userId, user.totalPoints);
+      }
+
+      // Get rank AFTER leaderboard is updated
+      const rank = await leaderboardService.getUserRank(userId);
+
+      // Check for achievements
+      const achievementUnlocks = await achievementChecker.checkUserAchievements(userId, rank);
+
+      res.json({
+        success: true,
+        walletAddress: result.walletAddress,
+        nftScanResult: result.nftScanResult,
+        rank,
+        achievements: achievementUnlocks.length > 0 ? achievementUnlocks : undefined
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      // Check if wallet is already connected to another account
+      if (errorMessage.includes('already connected to another account')) {
+        logger.warn('Wallet already connected to another account (POST)', {
+          userId: req.user!.userId
+        });
+
+        res.status(409).json({
+          error: 'Wallet Already Used',
+          code: 'WALLET_ALREADY_CONNECTED',
+          message: 'Этот кошелек уже подключен к другому аккаунту'
+        });
+        return;
+      }
+
+      logger.error('Connect wallet error (POST):', {
+        userId: req.user!.userId,
+        error: errorMessage
       });
 
       res.status(500).json({

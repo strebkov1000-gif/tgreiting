@@ -37,20 +37,37 @@ const TonApiNftResponseSchema = z.object({
 
 const TonCenterNftContentSchema = z.object({
   name: z.string().optional(),
-  image: z.string().optional()
+  image: z.string().optional(),
+  uri: z.string().optional() // TonCenter v3 returns uri instead of inline metadata
 }).passthrough();
 
 const TonCenterNftItemSchema = z.object({
-  address: z.string(),
-  collection: NftCollectionRefSchema.optional(),
-  index: z.number().int().min(0).optional(),
-  content: TonCenterNftContentSchema.optional(),
-  metadata: NftMetadataSchema.optional(),
-  previews: z.array(NftPreviewSchema).optional()
+  address: z.string().optional(), // May be missing in some cases
+  collection: NftCollectionRefSchema.optional().nullable(),
+  collection_address: z.string().optional().nullable(), // TonCenter v3 returns this separately
+  index: z.union([z.number(), z.string()]).optional().nullable(), // Can be number or string in v3
+  content: TonCenterNftContentSchema.optional().nullable(),
+  metadata: NftMetadataSchema.optional().nullable(),
+  previews: z.array(NftPreviewSchema).optional().nullable()
+}).passthrough();
+
+// Token info schema for metadata
+const TonCenterTokenInfoSchema = z.object({
+  name: z.string().optional(),
+  description: z.string().optional(),
+  image: z.string().optional()
+}).passthrough();
+
+// Collection metadata schema
+const TonCenterCollectionMetadataSchema = z.object({
+  is_indexed: z.boolean().optional(),
+  token_info: z.array(TonCenterTokenInfoSchema).optional()
 }).passthrough();
 
 const TonCenterNftResponseSchema = z.object({
-  nft_items: z.array(TonCenterNftItemSchema).optional()
+  nft_items: z.array(TonCenterNftItemSchema).optional().nullable(),
+  address_book: z.record(z.any()).optional(), // Address to user-friendly mapping
+  metadata: z.record(TonCenterCollectionMetadataSchema).optional() // Metadata by address
 }).passthrough();
 
 /**
@@ -88,6 +105,7 @@ export interface NftScanResult {
   nftsAdded: number;
   nftsRemoved: number;
   pointsAwarded: number;
+  pointsDeducted: number;
 }
 
 export interface NftItem {
@@ -385,14 +403,43 @@ export class NftScannerService {
         }
       }
 
-      // Remove sold NFTs
+      // Remove sold NFTs and deduct points
+      let pointsDeducted = 0;
       if (removedNfts.length > 0) {
+        // Calculate total points to deduct from removed NFTs
+        for (const removedNft of removedNfts) {
+          const pointsToDeduct = removedNft.pointsAwarded || 0;
+          if (pointsToDeduct > 0) {
+            // Deduct points for sold NFT
+            await this.pointsService.deductPoints({
+              userId,
+              points: pointsToDeduct,
+              activityType: 'nft_sold',
+              description: `NFT sold: ${removedNft.nft.name || 'Unknown NFT'} (-${pointsToDeduct} meters)`,
+              metadata: {
+                nftId: removedNft.nftId,
+                collectionAddress: removedNft.nft.collection.address,
+                collectionName: removedNft.nft.collection.name,
+                itemIndex: removedNft.nft.itemIndex
+              }
+            });
+            pointsDeducted += pointsToDeduct;
+          }
+        }
+
+        // Delete UserNFT records
         await this.prisma.userNFT.deleteMany({
           where: {
             id: {
               in: removedNfts.map(un => un.id)
             }
           }
+        });
+
+        logger.info('NFTs removed and points deducted', {
+          userId,
+          nftsRemoved: removedNfts.length,
+          pointsDeducted
         });
       }
 
@@ -408,14 +455,16 @@ export class NftScannerService {
         nftsFound: whitelistedNfts.length,
         nftsAdded: newNfts.length,
         nftsRemoved: removedNfts.length,
-        pointsAwarded
+        pointsAwarded,
+        pointsDeducted
       });
 
       return {
         nftsFound: whitelistedNfts.length,
         nftsAdded: newNfts.length,
         nftsRemoved: removedNfts.length,
-        pointsAwarded
+        pointsAwarded,
+        pointsDeducted
       };
     } catch (error) {
       logger.error('NFT update failed:', {
@@ -617,8 +666,53 @@ export class NftScannerService {
     const parseResult = TonCenterNftResponseSchema.safeParse(response.data);
     if (!parseResult.success) {
       logger.warn('TonCenter response validation failed', {
-        errors: parseResult.error.errors.slice(0, 5) // Log first 5 errors
+        errors: parseResult.error.errors.slice(0, 10), // Log first 10 errors for debugging
+        errorPaths: parseResult.error.errors.map(e => e.path.join('.')),
+        errorMessages: parseResult.error.errors.map(e => e.message),
+        responseKeys: Object.keys(response.data || {}),
+        firstItemKeys: response.data?.nft_items?.[0] ? Object.keys(response.data.nft_items[0]) : [],
+        nftItemsCount: response.data?.nft_items?.length || 0
       });
+
+      // Try to continue anyway with raw data if we have nft_items array
+      if (response.data?.nft_items && Array.isArray(response.data.nft_items)) {
+        logger.info('Attempting to process TonCenter response despite validation failure');
+
+        // Extract metadata from top-level metadata object (TonCenter v3)
+        const metadataMap = response.data.metadata || {};
+
+        return response.data.nft_items.map((item: any) => {
+          const collectionAddress = item.collection_address || item.collection?.address || '';
+
+          // Try to get collection metadata from top-level metadata object
+          const collectionMeta = metadataMap[collectionAddress]?.token_info?.[0];
+
+          // Try to get NFT-specific metadata from top-level metadata object
+          const nftMeta = metadataMap[item.address]?.token_info?.[0];
+
+          // NFT name: prefer NFT-specific, then collection name + index, then fallback
+          const nftName = nftMeta?.name ||
+                          item.content?.name ||
+                          (collectionMeta?.name ? `${collectionMeta.name} #${item.index}` : null) ||
+                          `NFT #${item.index}`;
+
+          // Image: prefer NFT-specific, then collection
+          const imageUrl = this.validateImageUrl(nftMeta?.image) ||
+                           this.validateImageUrl(collectionMeta?.image) ||
+                           this.validateImageUrl(item.content?.image) ||
+                           this.validateImageUrl(item.previews?.[0]?.url);
+
+          return {
+            collectionAddress,
+            itemIndex: String(item.index ?? '0'),
+            address: item.address || '',
+            metadata: item.content || {},
+            imageUrl,
+            name: nftName,
+            ownedSince: new Date()
+          };
+        });
+      }
       return [];
     }
 
@@ -627,16 +721,42 @@ export class NftScannerService {
       return [];
     }
 
-    return validatedData.nft_items.map((item) => ({
-      collectionAddress: item.collection?.address || '',
-      itemIndex: item.index?.toString() || '0',
-      address: item.address,
-      metadata: item.content || {},
-      // SECURITY: Validate image URLs to prevent SSRF
-      imageUrl: this.validateImageUrl(item.content?.image) || this.validateImageUrl(item.previews?.[0]?.url),
-      name: item.content?.name || item.metadata?.name || `NFT #${item.index}`,
-      ownedSince: new Date()
-    }));
+    // Extract metadata from top-level metadata object (TonCenter v3)
+    const metadataMap = validatedData.metadata || {};
+
+    return validatedData.nft_items.map((item: any) => {
+      const collectionAddress = item.collection_address || item.collection?.address || '';
+
+      // Try to get collection metadata from top-level metadata object
+      const collectionMeta = metadataMap[collectionAddress]?.token_info?.[0];
+
+      // Try to get NFT-specific metadata from top-level metadata object
+      const nftMeta = metadataMap[item.address]?.token_info?.[0];
+
+      // NFT name: prefer NFT-specific, then collection name + index, then fallback
+      const nftName = nftMeta?.name ||
+                      item.content?.name ||
+                      (collectionMeta?.name ? `${collectionMeta.name} #${item.index}` : null) ||
+                      `NFT #${item.index}`;
+
+      // Image: prefer NFT-specific, then collection
+      const imageUrl = this.validateImageUrl(nftMeta?.image) ||
+                       this.validateImageUrl(collectionMeta?.image) ||
+                       this.validateImageUrl(item.content?.image) ||
+                       this.validateImageUrl(item.previews?.[0]?.url);
+
+      return {
+        // TonCenter v3 returns collection_address separately, fallback to nested collection.address
+        collectionAddress,
+        itemIndex: String(item.index ?? '0'),
+        address: item.address || '',
+        metadata: item.content || {},
+        // SECURITY: Validate image URLs to prevent SSRF
+        imageUrl,
+        name: nftName,
+        ownedSince: new Date()
+      };
+    });
   }
 
   /**

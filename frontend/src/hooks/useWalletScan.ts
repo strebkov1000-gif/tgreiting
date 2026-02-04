@@ -49,6 +49,8 @@ export function useWalletScan() {
         body: JSON.stringify({ walletAddress }),
       });
 
+      // Parse wallet save response (includes NFT scan result)
+      let walletData: any = null;
       if (!saveResponse.ok) {
         // Check for specific error codes
         try {
@@ -61,32 +63,12 @@ export function useWalletScan() {
         } catch (parseError) {
           throw new Error('Не удалось сохранить кошелёк');
         }
+      } else {
+        walletData = await saveResponse.json();
       }
 
       setStep('counting_hold_days');
       await delay(500);
-
-      // Trigger NFT scan if user ID is available
-      let scanData: any = null;
-      if (userData?.id) {
-        try {
-          const scanResponse = await fetch(
-            `${API_URL}/nft/scan/${userData.id}`,
-            {
-              method: 'POST',
-              headers: {
-                'x-telegram-init-data': initData,
-              },
-            }
-          );
-
-          if (scanResponse.ok) {
-            scanData = await scanResponse.json();
-          }
-        } catch (scanError) {
-          console.warn('NFT scan error:', scanError);
-        }
-      }
 
       setStep('checking_clubs');
       await delay(500);
@@ -114,13 +96,14 @@ export function useWalletScan() {
 
       await delay(400);
 
-      // Compose result from scan and profile data
+      // Compose result from wallet save response (which includes NFT scan) and profile data
+      const nftScanResult = walletData?.nftScanResult;
       const result: WalletScanResult = {
-        nftsFound: scanData?.result?.nftsFound || profileData?.nftsCount || 0,
-        nftsAdded: scanData?.result?.nftsAdded || 0,
-        pointsAwarded: scanData?.result?.pointsAwarded || 0,
+        nftsFound: nftScanResult?.nftsFound || profileData?.nftsCount || 0,
+        nftsAdded: nftScanResult?.nftsAdded || 0,
+        pointsAwarded: nftScanResult?.pointsAwarded || 0,
         totalPoints: profileData?.user?.totalPoints || 0,
-        rank: profileData?.rank || null,
+        rank: walletData?.rank || profileData?.rank || null,
         holdDays: profileData?.holdDays || 0,
         clubsCount: profileData?.clubsCount || 0
       };

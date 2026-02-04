@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTonAddress } from '@tonconnect/ui-react';
 import Snowman from '../components/icons/Snowman';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useNetworkError } from '../contexts/NetworkErrorContext';
 // v2.1 - Show all NFTs in hold bonus
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://icetop.app/api';
@@ -169,6 +170,7 @@ interface HoldBonusData {
 
 export default function Profile() {
   const { t } = useLanguage();
+  const { triggerNetworkError } = useNetworkError();
   const userAddress = useTonAddress();
   const [user, setUser] = useState<TelegramUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -214,6 +216,12 @@ export default function Profile() {
         headers: { 'x-telegram-init-data': initData },
       });
 
+      // Check for auth errors
+      if (response.status === 401 || response.status === 403) {
+        triggerNetworkError();
+        return;
+      }
+
       if (response.ok) {
         const data = await response.json();
         setProfile(data.user);
@@ -235,6 +243,12 @@ export default function Profile() {
       const response = await fetch(`${API_URL}/user/${telegramId}/hold-bonus`, {
         headers: { 'x-telegram-init-data': initData },
       });
+
+      // Check for auth errors
+      if (response.status === 401 || response.status === 403) {
+        triggerNetworkError();
+        return;
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -350,7 +364,7 @@ export default function Profile() {
       id: 'top-100',
       title: t.profile.top100,
       description: t.profile.top100Desc,
-      reward: t.profile.specialNft,
+      reward: '+250m',
       icon: 'trophy',
       gradient: 'from-yellow-400 to-amber-500',
       status: (profile?.rank ?? 999) <= 100 ? 'completed' : 'locked',
@@ -365,15 +379,6 @@ export default function Profile() {
       status: (profile?.currentStreak ?? 0) >= 30 ? 'completed' : 'available',
       progress: profile?.currentStreak ?? 0,
       target: 30,
-    },
-    {
-      id: 'hold-bonus',
-      title: t.profile.holdBonus,
-      description: t.profile.holdBonusShortDesc,
-      reward: '+10%/mo',
-      icon: 'clock',
-      gradient: 'from-indigo-400 to-purple-500',
-      status: nftCount > 0 ? 'completed' : 'locked',
     },
   ];
 
@@ -616,7 +621,7 @@ export default function Profile() {
                 <div>
                   <div className="text-sm font-bold text-white">{t.level} {loading ? '...' : userLevel}</div>
                   <div className="text-xs text-yellow-500/70">
-                    {loading ? '...' : userLevel >= 10 ? t.profile.maxLevel : `${pointsForNextLevel! - (profile?.totalPoints || 0)} ${t.profile.metersToNext}`}
+                    {loading ? '...' : userLevel >= 10 ? t.profile.maxLevel : `${pointsForNextLevel! - (profile?.totalPoints || 0)}${t.profile.metersToNext}`}
                   </div>
                 </div>
               </div>

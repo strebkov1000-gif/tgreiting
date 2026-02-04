@@ -1,7 +1,9 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { LanguageProvider } from './i18n/LanguageContext';
+import { NetworkErrorProvider } from './contexts/NetworkErrorContext';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
 import Prizes from './pages/Prizes';
@@ -22,6 +24,34 @@ const manifestUrl = import.meta.env.VITE_TON_MANIFEST_URL || 'https://example.co
 
 // Key for tracking if initial load completed
 const INITIAL_LOAD_KEY = 'icetop_initial_loaded';
+
+// Animated Routes component
+function AnimatedRoutes() {
+  const location = useLocation();
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.98 }}
+        transition={{
+          duration: 0.15,
+          ease: 'easeOut',
+        }}
+        className="w-full min-h-full"
+      >
+        <Routes location={location}>
+          <Route path="/" element={<Leaderboard />} />
+          <Route path="/tasks" element={<Tasks />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/prizes" element={<Prizes />} />
+        </Routes>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 function App() {
   // Check if this is a fresh session or returning from minimize
@@ -55,17 +85,22 @@ function App() {
       const tg = window.Telegram.WebApp;
       tg.ready();
 
-      // Expand to full screen
-      tg.expand();
+      // Check if running on mobile platform
+      const isMobile = ['android', 'android_x', 'ios'].includes(tg.platform || '');
 
-      // Request fullscreen mode if available (Telegram WebApp 7.7+)
-      if (tg.requestFullscreen) {
-        tg.requestFullscreen();
-      }
+      // Only expand to full screen on mobile devices
+      if (isMobile) {
+        tg.expand();
 
-      // Disable vertical swipes to close (keeps app open on swipe down)
-      if (tg.disableVerticalSwipes) {
-        tg.disableVerticalSwipes();
+        // Request fullscreen mode if available (Telegram WebApp 7.7+)
+        if (tg.requestFullscreen) {
+          tg.requestFullscreen();
+        }
+
+        // Disable vertical swipes to close (keeps app open on swipe down)
+        if (tg.disableVerticalSwipes) {
+          tg.disableVerticalSwipes();
+        }
       }
 
       // Enable closing confirmation
@@ -186,20 +221,17 @@ function App() {
   }
 
   return (
-    <LanguageProvider>
-      <TonConnectUIProvider manifestUrl={manifestUrl}>
-        <Router>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Leaderboard />} />
-              <Route path="/tasks" element={<Tasks />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/prizes" element={<Prizes />} />
-            </Routes>
-          </Layout>
-        </Router>
-      </TonConnectUIProvider>
-    </LanguageProvider>
+    <NetworkErrorProvider>
+      <LanguageProvider>
+        <TonConnectUIProvider manifestUrl={manifestUrl}>
+          <Router>
+            <Layout>
+              <AnimatedRoutes />
+            </Layout>
+          </Router>
+        </TonConnectUIProvider>
+      </LanguageProvider>
+    </NetworkErrorProvider>
   );
 }
 
