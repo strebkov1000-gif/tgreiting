@@ -2,6 +2,12 @@
 
 Telegram Mini App + Bot для рейтинговой системы держателей NFT стикеров проекта [@ice_creators](https://t.me/ice_creators)
 
+## Мой вклад
+
+- Реализовал интерфейс Mini App и серверную логику рейтинга: подключение кошельков, сканирование NFT, начисление баллов, достижения и реферальную систему.
+- Использовал Redis Sorted Sets для рейтинга и добавил чтение из PostgreSQL при пустом или недоступном Redis.
+- Добавил фоновые задачи синхронизации рейтинга, проверки владения NFT и начисления бонусов.
+
 ## 📋 Описание
 
 Бот с gamification элементами, который:
@@ -42,7 +48,8 @@ Telegram Mini App + Bot для рейтинговой системы держа�
 
 1. **Клонируйте проект**
 ```bash
-cd /root/ice-rating-bot
+git clone https://github.com/strebkov1000-gif/tgreiting.git
+cd tgreiting
 ```
 
 2. **Настройте environment variables**
@@ -111,7 +118,6 @@ ice-rating-bot/
 │   │   ├── hooks/
 │   │   └── store/
 │   └── package.json
-├── assets/              # Дизайн, иконки, гифки
 └── docker-compose.yml
 ```
 
@@ -214,11 +220,6 @@ npm run preview      # Preview production build
 
 MIT
 
-## 👥 Авторы
+## 👥 Команда
 
-Ice Creators Team
-
----
-
-**Папка для assets:** `/root/ice-rating-bot/assets/`
-Загружайте туда дизайн, иконки, гифки для проекта.
+Проект разработан для Ice Creators. Публичный репозиторий подготовил Глеб Стребков.
